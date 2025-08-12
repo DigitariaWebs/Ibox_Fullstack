@@ -1,0 +1,78 @@
+{
+  "welcome": {
+    "en": "Welcome",
+    "fr": "Bienvenue"
+  },
+  "select_language": {
+    "en": "Select Language",
+    "fr": "Choisir la langue"
+  },
+  "english": {
+    "en": "English",
+    "fr": "Anglais"
+  },
+  "french": {
+    "en": "French",
+    "fr": "Français"
+  },
+  "save_settings": {
+    "en": "Save Settings",
+    "fr": "Enregistrer"
+  },
+  "saved": {
+    "en": "Saved!",
+    "fr": "Enregistré !"
+  },
+  "home_title": {
+    "en": "Home",
+    "fr": "Accueil"
+  },
+  "go_to_settings": {
+    "en": "Go to Settings",
+    "fr": "Aller aux paramètres"
+  },
+  "redux_counter": {
+    "en": "Redux Counter",
+    "fr": "Compteur Redux"
+  },
+  "increment": {
+    "en": "Increment",
+    "fr": "Incrémenter"
+  },
+  "decrement": {
+    "en": "Decrement",
+    "fr": "Décrémenter"
+  },
+  "increment_by_amount": {
+    "en": "+5",
+    "fr": "+5"
+  },
+  "settings_title": {
+    "en": "Settings",
+    "fr": "Paramètres"
+  },
+  "change_language": {
+    "en": "Change Language",
+    "fr": "Changer la langue"
+  },
+  "explore_possibilities": {
+    "en": "Ship anything",
+    "fr": "Expédiez tout"
+  },
+  "nearby": {
+    "en": "with iBox",
+    "fr": "avec iBox"
+  },
+  "join_neighborhood": {
+    "en": "Get Started",
+    "fr": "Commencer"
+  },
+  "log_in": {
+    "en": "Log in",
+    "fr": "Se connecter"
+  },
+  "have_invite_code": {
+    "en": "Have an invite code?",
+    "fr": "Avez-vous un code d'invitation ?"
+  }
+} 
