@@ -50,7 +50,8 @@
       "Bash(mongo:*)",
       "Bash(find:*)",
       "Bash(rm:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(nslookup:*)"
     ],
     "deny": []
   }

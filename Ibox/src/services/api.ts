@@ -1,58 +1,47 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// API Configuration
-// IMPORTANT: Choose the correct URL based on your development environment:
-// - Android Emulator: Use 'http://10.0.2.2:5000/api/v1'
-// - iOS Simulator: Use 'http://localhost:5000/api/v1' 
-// - Physical Device: Use your computer's IP address (e.g., 'http://192.168.1.14:5000/api/v1')
-// - WSL/Windows: Use the Windows host IP from ipconfig
-
 import { Platform } from 'react-native';
+import { discoverBackendUrl, getCachedServerUrl, clearServerCache } from '../config/network';
 
-// Auto-detect the correct API URL based on platform
-const getApiUrl = () => {
-  if (!__DEV__) {
-    return 'https://your-production-api.com/api/v1';
-  }
-
-  // Check for environment variable first (highest priority)
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    console.log('📍 Using API URL from environment variable');
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-
-  // For Android Emulator
-  if (Platform.OS === 'android') {
-    // Android emulator uses 10.0.2.2 to access host machine
-    return 'http://10.0.2.2:5000/api/v1';
-  }
-  
-  // For iOS - need to detect if simulator or physical device
-  if (Platform.OS === 'ios') {
-    // For physical iOS devices, we must use the computer's IP address
-    // Update this with your computer's IP address when testing on real device
-    const isSimulator = !Platform.isPad && !Platform.isTV && 
-                       (Platform.Version === 'undefined' || Platform.Version === null);
-    
-    if (isSimulator) {
-      return 'http://localhost:5000/api/v1';
-    } else {
-      // Physical iOS device - use your computer's IP address
-      // You need to use your Windows/Mac IP address (not WSL IP)
-      // Find it with: Windows: ipconfig | Mac: ifconfig
-      return 'http://192.168.1.14:5000/api/v1';
-    }
-  }
-
-  // Default fallback - your computer's IP address
-  return 'http://192.168.1.14:5000/api/v1';
-};
-
-const API_CONFIG = {
-  BASE_URL: getApiUrl(),
+// API Configuration with Automatic Discovery
+let API_CONFIG = {
+  BASE_URL: '',  // Will be set dynamically
   TIMEOUT: 30000, // 30 seconds
   RETRY_COUNT: 3,
 };
+
+// Initialize the base URL
+let isInitialized = false;
+let initializationPromise: Promise<void> | null = null;
+
+/**
+ * Initialize the API configuration with automatic discovery
+ */
+async function initializeApiConfig() {
+  if (isInitialized && API_CONFIG.BASE_URL) {
+    return;
+  }
+
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise = (async () => {
+    try {
+      const url = await discoverBackendUrl();
+      API_CONFIG.BASE_URL = url;
+      isInitialized = true;
+      console.log('🚀 API initialized with URL:', url);
+    } catch (error) {
+      console.error('Failed to initialize API:', error);
+      // Fallback URL
+      API_CONFIG.BASE_URL = Platform.OS === 'android' 
+        ? 'http://10.0.2.2:5000/api/v1'
+        : 'http://localhost:5000/api/v1';
+    }
+  })();
+
+  return initializationPromise;
+}
 
 // Storage keys for tokens
 const TOKEN_KEYS = {
@@ -163,13 +152,42 @@ class ApiService {
   private retryCount: number;
 
   constructor() {
-    this.baseUrl = API_CONFIG.BASE_URL;
+    // Will be initialized dynamically
+    this.baseUrl = '';
     this.timeout = API_CONFIG.TIMEOUT;
     this.retryCount = API_CONFIG.RETRY_COUNT;
     
-    // Log the API URL being used
+    // Initialize on first use
+    this.ensureInitialized();
+  }
+
+  private async ensureInitialized() {
+    await initializeApiConfig();
+    this.baseUrl = API_CONFIG.BASE_URL;
     console.log('🌐 API Service initialized with URL:', this.baseUrl);
     console.log('📱 Platform:', Platform.OS);
+  }
+
+  /**
+   * Get current configuration for external use
+   */
+  getConfig() {
+    return {
+      baseUrl: this.baseUrl || API_CONFIG.BASE_URL,
+      timeout: this.timeout,
+      retryCount: this.retryCount,
+    };
+  }
+
+  /**
+   * Force re-discovery of backend URL (useful after network changes)
+   */
+  async rediscoverBackend() {
+    clearServerCache();
+    isInitialized = false;
+    initializationPromise = null;
+    await this.ensureInitialized();
+    return this.baseUrl;
   }
 
   // Token Management
@@ -245,6 +263,9 @@ class ApiService {
     options: RequestInit = {},
     withAuth: boolean = true
   ): Promise<ApiResponse<T>> {
+    // Ensure API is initialized before making request
+    await this.ensureInitialized();
+    
     let attempt = 0;
     
     while (attempt < this.retryCount) {
@@ -906,6 +927,9 @@ class ApiService {
     message?: string;
   }> {
     try {
+      // Ensure API is initialized
+      await this.ensureInitialized();
+      
       console.log(`📤 Uploading file from ${fileUri} to category: ${category}`);
       
       // Create form data
@@ -1002,9 +1026,21 @@ class ApiService {
     throw new Error('Google login not implemented yet');
   }
 
+  // Public method for external services that need to make requests
+  async publicRequest<T>(
+    endpoint: string,
+    options: RequestInit & { headers?: Record<string, string> } = {}
+  ): Promise<ApiResponse<T>> {
+    // This is a public wrapper around the private makeRequest
+    return this.makeRequest<T>(endpoint, options, true);
+  }
+
   // Utility Methods
   async checkConnection(): Promise<boolean> {
     try {
+      // Ensure API is initialized
+      await this.ensureInitialized();
+      
       // Create timeout promise for React Native compatibility
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Connection timeout')), 5000);
