@@ -134,7 +134,7 @@ class ProfileService {
       } as any);
 
       const response = await apiService.makeRequest<{ profilePicture: string }>(
-        `${this.baseUrl}/profile/picture`,
+        '/upload/profile-picture',
         {
           method: 'POST',
           body: formData,
@@ -145,7 +145,7 @@ class ProfileService {
       );
 
       if (response.success && response.data) {
-        return response.data;
+        return { profilePicture: response.data.profilePicture };
       }
       throw new Error(response.message || 'Failed to upload profile picture');
     } catch (error: any) {

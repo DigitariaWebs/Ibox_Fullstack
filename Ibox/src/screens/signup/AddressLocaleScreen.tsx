@@ -200,39 +200,6 @@ const AddressLocaleScreen: React.FC<AddressLocaleScreenProps> = ({ navigation })
               </View>
             </View>
             
-            {/* Preview Card */}
-            <View style={styles.previewCard}>
-              <View style={styles.previewHeader}>
-                <Icon name="eye" type="Feather" size={18} color={Colors.primary} />
-                <Text style={styles.previewTitle}>Your Profile Preview</Text>
-              </View>
-              <View style={styles.previewContent}>
-                <View style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>Account Type:</Text>
-                  <Text style={styles.previewValue}>
-                    {signUpData.accountType === 'customer' ? 'Customer' : 'Transporter'}
-                  </Text>
-                </View>
-                <View style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>Name:</Text>
-                  <Text style={styles.previewValue}>
-                    {signUpData.firstName} {signUpData.lastName}
-                  </Text>
-                </View>
-                <View style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>Location:</Text>
-                  <Text style={styles.previewValue}>
-                    {formData.defaultAddress || 'Not specified'}
-                  </Text>
-                </View>
-                <View style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>Language:</Text>
-                  <Text style={styles.previewValue}>
-                    {LANGUAGES.find(l => l.code === formData.language)?.label || 'English'}
-                  </Text>
-                </View>
-              </View>
-            </View>
           </View>
         </ScrollView>
         
@@ -380,44 +347,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  previewCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  previewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  previewTitle: {
-    fontSize: 16,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  previewContent: {
-    gap: 8,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  previewValue: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    fontWeight: '500',
-    flex: 1,
-    textAlign: 'right',
   },
   buttonContainer: {
     paddingHorizontal: 24,

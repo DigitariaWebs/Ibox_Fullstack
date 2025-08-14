@@ -209,6 +209,47 @@ class SignUpService {
       // Transform data to API format
       const apiData = this.transformSignUpDataToApiRequest(signUpData);
 
+      // Fix phone number format and validate length
+      if (apiData.phone) {
+        // Remove any spaces or special characters except +
+        let cleanPhone = apiData.phone.replace(/[^\d+]/g, '');
+        
+        // Fix common issues with phone numbers
+        if (cleanPhone.startsWith('+213')) {
+          // Algeria: +213 followed by 9 digits (total 13 characters)
+          const algeriaPart = cleanPhone.substring(4); // Get part after +213
+          
+          // Remove common prefixes that get duplicated (05, 06, 07)
+          if (algeriaPart.startsWith('05') || algeriaPart.startsWith('06') || algeriaPart.startsWith('07')) {
+            // Keep only 8 digits after the mobile prefix
+            const mobilePrefix = algeriaPart.substring(0, 2);
+            const mobileNumber = algeriaPart.substring(2, 10); // Take next 8 digits
+            cleanPhone = `+213${mobilePrefix}${mobileNumber}`;
+          } else if (algeriaPart.length > 9) {
+            // If too long, take only first 9 digits
+            cleanPhone = `+213${algeriaPart.substring(0, 9)}`;
+          } else if (algeriaPart.length < 9) {
+            // If too short, this might be an invalid number - let backend handle it
+            cleanPhone = `+213${algeriaPart}`;
+          }
+        } else if (cleanPhone.startsWith('+1')) {
+          // US/Canada: +1 followed by 10 digits
+          const northAmericaPart = cleanPhone.substring(2);
+          if (northAmericaPart.length > 10) {
+            cleanPhone = `+1${northAmericaPart.substring(0, 10)}`;
+          }
+        } else if (cleanPhone.startsWith('+33')) {
+          // France: +33 followed by 9 digits
+          const francePart = cleanPhone.substring(3);
+          if (francePart.length > 9) {
+            cleanPhone = `+33${francePart.substring(0, 9)}`;
+          }
+        }
+        
+        apiData.phone = cleanPhone;
+        console.log('📱 Cleaned phone number:', apiData.phone);
+      }
+
       // Validate API data format
       const apiValidation = apiService.validateRegistrationData(apiData);
       if (!apiValidation.isValid) {
@@ -225,6 +266,21 @@ class SignUpService {
           success: false,
           message: 'Email address is already registered. Please use a different email or try logging in.',
         };
+      }
+
+      // Handle file uploads for transporters BEFORE registration
+      if (signUpData.accountType === 'transporter') {
+        console.log('📤 Uploading transporter documents...');
+        
+        // Note: Currently, file uploads are handled after registration
+        // The backend will store file paths as references
+        // In a production app, you'd upload files first and store URLs
+        console.log('📝 Transporter has documents to upload:', {
+          vehiclePhotos: signUpData.vehiclePhotos?.length || 0,
+          licenseImage: !!signUpData.licenseImage,
+          insuranceDoc: !!signUpData.insuranceDoc,
+          chequeImage: !!signUpData.chequeImage
+        });
       }
 
       // Register with backend

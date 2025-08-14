@@ -13,6 +13,7 @@ import {
   Alert
 } from 'react-native';
 import { useSelector } from 'react-redux';
+import { useNavigation } from '@react-navigation/native';
 import { Text, Icon } from '../ui';
 import { Colors } from '../config/colors';
 import { RootState } from '../store/store';
@@ -27,15 +28,16 @@ interface TimedRequest {
   duration: number;
 }
 
-const TransporterHomeScreen: React.FC<any> = ({ navigation }) => {
+const TransporterHomeScreen: React.FC<any> = () => {
+  const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   const [timedRequests, setTimedRequests] = useState<TimedRequest[]>([]);
   
   // Get user data from Redux store
   const userData = useSelector((state: RootState) => state.user.userData);
   
-  // Get auth functions
-  const { logout } = useAuth();
+  // Get auth functions and real user data
+  const { logout, user, getCurrentUser } = useAuth();
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -775,6 +777,30 @@ const TransporterHomeScreen: React.FC<any> = ({ navigation }) => {
     return () => clearInterval(masterInterval);
   }, []);
 
+  // Refresh user data only when returning from Profile screen
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      const state = navigation.getState();
+      const previousRoute = state.routes[state.index - 1];
+      
+      // Only refresh if returning from Profile screen
+      if (previousRoute?.name === 'Profile' || previousRoute?.name === 'ModernProfile') {
+        const refreshUserData = async () => {
+          try {
+            await getCurrentUser();
+            console.log('🔄 User data refreshed after returning from Profile');
+          } catch (error) {
+            console.log('Could not refresh user data:', error);
+          }
+        };
+        
+        refreshUserData();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, getCurrentUser]);
+
   // Initialize with some starting requests
   const initializeRequests = () => {
     const now = Date.now();
@@ -799,6 +825,14 @@ const TransporterHomeScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const getDisplayName = () => {
+    // Use real user data from backend first
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName} ${user.lastName}`;
+    }
+    if (user?.name) {
+      return user.name;
+    }
+    // Fallback to Redux store data
     if (userData.firstName && userData.lastName) {
       return `${userData.firstName} ${userData.lastName}`;
     }
@@ -927,7 +961,9 @@ const TransporterHomeScreen: React.FC<any> = ({ navigation }) => {
               <View style={styles.profileInfo}>
                 <TouchableOpacity style={styles.profileButton} onPress={handleProfilePress}>
                   <ImageBackground
-                    source={{ uri: 'https://i.pravatar.cc/100?img=8' }}
+                    source={{ 
+                      uri: user?.profilePicture || 'https://i.pravatar.cc/100?img=8' 
+                    }}
                     style={styles.profileImage}
                     imageStyle={styles.profileImageStyle}
                   />

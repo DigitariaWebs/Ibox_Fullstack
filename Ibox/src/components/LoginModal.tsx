@@ -149,6 +149,11 @@ const LoginModal: React.FC<LoginModalProps> = ({ visible, onClose, navigation })
     }
   };
 
+  const handleSignUp = () => {
+    // Close the modal and navigate to signup flow
+    onClose();
+    navigation?.navigate('OnboardingEntry');
+  };
 
   const handleEmailFocus = () => {
     setIsEmailFocused(true);
@@ -190,11 +195,6 @@ const LoginModal: React.FC<LoginModalProps> = ({ visible, onClose, navigation })
     console.log('🎉 Login modal closed, AuthContext will handle navigation based on userType:', accountType || 'customer');
   };
 
-  const handleSignUp = () => {
-    // Close the modal and navigate to signup flow
-    onClose();
-    navigation?.navigate('OnboardingEntry');
-  };
 
   const panResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (evt, gestureState) => {

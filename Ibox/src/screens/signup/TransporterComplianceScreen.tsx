@@ -23,8 +23,6 @@ interface TransporterComplianceScreenProps {
 }
 
 interface FormData {
-  licenseImages: string[];
-  licenseExpiry: string;
   insuranceDoc: string;
   bgCheckConsent: boolean;
 }
@@ -33,8 +31,6 @@ const TransporterComplianceScreen: React.FC<TransporterComplianceScreenProps> = 
   const { signUpData, updateSignUpData, setCurrentStep } = useSignUp();
   
   const [formData, setFormData] = useState<FormData>({
-    licenseImages: signUpData.licenseImages || [],
-    licenseExpiry: signUpData.licenseExpiry || '',
     insuranceDoc: signUpData.insuranceDoc || '',
     bgCheckConsent: signUpData.bgCheckConsent || false,
   });
@@ -48,11 +44,7 @@ const TransporterComplianceScreen: React.FC<TransporterComplianceScreenProps> = 
 
   const validateForm = async () => {
     try {
-      const validationData = {
-        ...formData,
-        licenseExpiry: formData.licenseExpiry ? new Date(formData.licenseExpiry) : undefined,
-      };
-      await transporterComplianceSchema.validate(validationData, { abortEarly: false });
+      await transporterComplianceSchema.validate(formData, { abortEarly: false });
       setErrors({});
       setIsValid(true);
     } catch (validationErrors: any) {
@@ -72,8 +64,6 @@ const TransporterComplianceScreen: React.FC<TransporterComplianceScreenProps> = 
   const handleNext = () => {
     if (isValid) {
       updateSignUpData({
-        licenseImages: formData.licenseImages,
-        licenseExpiry: formData.licenseExpiry,
         insuranceDoc: formData.insuranceDoc,
         bgCheckConsent: formData.bgCheckConsent,
       });
@@ -95,7 +85,7 @@ const TransporterComplianceScreen: React.FC<TransporterComplianceScreenProps> = 
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: [ImagePicker.MediaType.Images],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,

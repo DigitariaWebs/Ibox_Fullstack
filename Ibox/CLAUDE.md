@@ -222,6 +222,20 @@ Detailed implementation roadmap available in `/BACKEND_PLAN.md` with:
 - Backend: `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=79631645506-9jg545mflqfvl8v50lc1gsthj4cotsld.apps.googleusercontent.com`
 - Frontend: Same client ID in `.env`
 
+## Important Design Guidelines
+
+### UI Design Standards
+- **Use App Colors**: Always use colors from `/src/config/colors.ts` (Colors.primary = #0AA5A8 teal, not blue)
+- **No Emoji Icons**: Replace text/emoji with proper icon packages (Feather, Ionicons, etc.)
+- **Consistent Icons**: Use Feather icons as primary choice for consistency
+- **Color Variables**: Import and use `Colors` from config, not hardcoded hex values
+- **Responsive Design**: Use scaling functions from `/src/utils/responsive.ts`
+
+### Component Standards
+- Customer icon: `<Icon name="package" type="Feather" />`
+- Transporter icon: `<Icon name="truck" type="Feather" />`
+- Use proper color theming with selection states
+
 ## Change Log
 - Initial project setup and documentation created
 - **Authentication Flow Changes**:
@@ -282,3 +296,28 @@ Detailed implementation roadmap available in `/BACKEND_PLAN.md` with:
     - Fixed login API response structure to match frontend expectations
     - Enhanced error logging and debugging for authentication issues
     - Improved API service compatibility with both old and new response formats
+- **Latest Updates** (2025-01-14):
+  - **Step 4 Complete Redesign**:
+    - **Sub-step Navigation**: Split vehicle registration into 3 non-scrollable sub-steps (Type → Details → Photos)
+    - **Camera Experience**: Full-page intro screen explaining photo capture process with numbered list
+    - **Improved Camera UI**: Progress tracking, frame guides with corner brackets, smaller instruction cards
+    - **Professional Design**: Uses app teal color consistently, Feather icons, responsive scaling
+    - **No Scrolling**: Each sub-step fits perfectly on screen without scrolling
+  - **Phone Number Validation Fixes**:
+    - **Enhanced Validation**: Improved phone number cleaning for Algeria (+213) and other countries
+    - **Length Limits**: Added country-specific digit limits in PhoneNumberInput component
+    - **Format Correction**: Automatically fixes common phone number format issues during registration
+  - **Technical Improvements**:
+    - **ImagePicker Update**: Fixed deprecated MediaTypeOptions warnings by using MediaType array
+    - **Responsive Camera**: Camera UI adapts to different screen sizes with proper scaling
+  - **Phone Input Redesign**:
+    - **Modal Approach**: Updated PhoneNumberInput to use the same modal design as customer signup
+    - **Clean Interface**: Touchable field that opens a professional phone number modal
+    - **Better UX**: Shows formatted phone number with country flag in the input field
+    - **Consistent Design**: Matches the established pattern used throughout the app
+  - **Camera Flow Simplification**:
+    - **Direct Camera Access**: Removed camera intro screen as requested
+    - **Streamlined UX**: Tapping "Take Photos" now goes directly to camera capture
+    - **Clean Camera UI**: Removed instruction overlay cards that appeared on camera screen
+    - **Minimal Interface**: Camera now shows only progress bar, frame guides, and capture button
+    - **Cleaner Code**: Removed unused intro screen and instruction overlay components

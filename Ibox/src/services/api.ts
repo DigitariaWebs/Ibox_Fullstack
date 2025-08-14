@@ -110,6 +110,9 @@ interface AdvancedRegisterRequest extends RegisterRequest {
     licenseNumber?: string;
     licenseExpiry?: string;
     insuranceNumber?: string;
+    vehiclePhotos?: string[];  // URLs of uploaded vehicle photos
+    licenseDocument?: string;  // URL of uploaded license document
+    insuranceDocument?: string; // URL of uploaded insurance document
   };
   
   // Banking information (for transporters)
@@ -118,6 +121,7 @@ interface AdvancedRegisterRequest extends RegisterRequest {
     accountNumber: string;
     routingNumber: string;
     accountHolderName: string;
+    chequeImage?: string;  // URL of uploaded cheque image
   };
 }
 
@@ -893,6 +897,103 @@ class ApiService {
     });
 
     return response.success;
+  }
+
+  // File Upload Methods
+  async uploadFile(fileUri: string, category: 'profile' | 'documents' | 'vehicle' | 'cheque'): Promise<{
+    success: boolean;
+    url?: string;
+    message?: string;
+  }> {
+    try {
+      console.log(`📤 Uploading file from ${fileUri} to category: ${category}`);
+      
+      // Create form data
+      const formData = new FormData();
+      
+      // Get file info from URI
+      const filename = fileUri.split('/').pop() || 'file.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      
+      // Append file to form data
+      formData.append('file', {
+        uri: fileUri,
+        name: filename,
+        type,
+      } as any);
+      
+      formData.append('category', category);
+      
+      // Get access token
+      const accessToken = await this.getAccessToken();
+      
+      // Make upload request
+      const response = await fetch(`${this.baseUrl.replace('/api/v1', '')}/api/v1/upload/${category === 'profile' ? 'profile-picture' : category === 'documents' ? 'documents' : 'order-photos'}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': accessToken ? `Bearer ${accessToken}` : '',
+          // Don't set Content-Type - let fetch set it with boundary for multipart
+        },
+        body: formData,
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        console.log(`✅ File uploaded successfully: ${data.data?.url || data.data?.filename}`);
+        return {
+          success: true,
+          url: data.data?.url || data.data?.filename,
+        };
+      } else {
+        console.error(`❌ Upload failed: ${data.message}`);
+        return {
+          success: false,
+          message: data.message || 'Upload failed',
+        };
+      }
+    } catch (error) {
+      console.error('❌ File upload error:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Upload failed',
+      };
+    }
+  }
+
+  async uploadMultipleFiles(fileUris: string[], category: 'profile' | 'documents' | 'vehicle' | 'cheque'): Promise<{
+    success: boolean;
+    urls?: string[];
+    message?: string;
+  }> {
+    try {
+      const uploadPromises = fileUris.map(uri => this.uploadFile(uri, category));
+      const results = await Promise.all(uploadPromises);
+      
+      const allSuccessful = results.every(r => r.success);
+      const urls = results.filter(r => r.url).map(r => r.url!);
+      
+      if (allSuccessful) {
+        return {
+          success: true,
+          urls,
+        };
+      } else {
+        const failedCount = results.filter(r => !r.success).length;
+        return {
+          success: false,
+          urls, // Return successfully uploaded URLs even if some failed
+          message: `${failedCount} file(s) failed to upload`,
+        };
+      }
+    } catch (error) {
+      console.error('❌ Multiple file upload error:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Upload failed',
+      };
+    }
   }
 
   // Google Authentication (TODO: Implement with Firebase)

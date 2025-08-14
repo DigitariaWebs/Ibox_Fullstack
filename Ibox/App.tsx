@@ -35,8 +35,8 @@ import CustomerExtrasScreen from './src/screens/signup/CustomerExtrasScreen';
 import PaymentMethodScreen from './src/screens/signup/PaymentMethodScreen';
 import CustomerAccountTypeScreen from './src/screens/signup/CustomerAccountTypeScreen';
 import BusinessDetailsScreen from './src/screens/signup/BusinessDetailsScreen';
-import TransporterVehicleScreen from './src/screens/signup/TransporterVehicleScreen';
-import TransporterComplianceScreen from './src/screens/signup/TransporterComplianceScreen';
+import TransporterVehicleRedesigned from './src/screens/signup/TransporterVehicleRedesigned';
+import TransporterComplianceScreen from './src/screens/signup/TransporterComplianceScreenSimplified';
 import TransporterBankingScreen from './src/screens/signup/TransporterBankingScreen';
 import ConfirmationScreen from './src/screens/signup/ConfirmationScreen';
 import MapScreen from './src/screens/MapScreen';
@@ -235,7 +235,7 @@ const MainNavigator: React.FC = () => {
         <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} />
         <Stack.Screen name="CustomerAccountType" component={CustomerAccountTypeScreen} />
         <Stack.Screen name="BusinessDetails" component={BusinessDetailsScreen} />
-        <Stack.Screen name="TransporterVehicle" component={TransporterVehicleScreen} />
+        <Stack.Screen name="TransporterVehicle" component={TransporterVehicleRedesigned} />
         <Stack.Screen name="TransporterCompliance" component={TransporterComplianceScreen} />
         <Stack.Screen name="TransporterBanking" component={TransporterBankingScreen} />
         <Stack.Screen name="Confirmation" component={ConfirmationScreen} />

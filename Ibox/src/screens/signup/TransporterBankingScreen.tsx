@@ -21,7 +21,6 @@ import { Colors } from '../../config/colors';
 import { useSignUp } from '../../contexts/SignUpContext';
 import { transporterBankingSchema } from '../../validation/signUpSchemas';
 import * as ImagePicker from 'expo-image-picker';
-import { Images } from '../../config/assets';
 
 // Move BANKS array to the top of the file, before the component
 const BANKS = [
@@ -67,6 +66,7 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
   const [bankModalVisible, setBankModalVisible] = useState(false);
   const [bankSearch, setBankSearch] = useState('');
   const [chequeImage, setChequeImage] = useState('');
+  const [infoModalVisible, setInfoModalVisible] = useState(false);
 
   useEffect(() => {
     validateForm();
@@ -137,7 +137,7 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
       bankAccount: formData.bankAccount,
       bankHolder: formData.bankHolder,
     });
-    setCurrentStep(8);
+    setCurrentStep(6);
     navigation.navigate('Confirmation');
   };
 
@@ -156,8 +156,19 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
       }
 
       console.log('Opening image picker...');
+      console.log('ImagePicker available:', !!ImagePicker);
+      console.log('ImagePicker.MediaType:', ImagePicker.MediaType);
+      console.log('ImagePicker.MediaTypeOptions:', ImagePicker.MediaTypeOptions);
+      
+      // Try using MediaTypeOptions if MediaType is undefined
+      const mediaTypeConfig = ImagePicker.MediaType?.Images 
+        ? { mediaTypes: [ImagePicker.MediaType.Images] }
+        : ImagePicker.MediaTypeOptions?.Images 
+          ? { mediaTypes: ImagePicker.MediaTypeOptions.Images }
+          : { mediaTypes: ['Images'] };
+      
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        ...mediaTypeConfig,
         allowsEditing: false,
         quality: 0.8,
       });
@@ -185,7 +196,7 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
                       <Icon name="chevron-left" type="Feather" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.stepIndicator}>Step 6 of 7</Text>
+        <Text style={styles.stepIndicator}>Step 6 of 6</Text>
       </View>
       
       <KeyboardAvoidingView 
@@ -200,12 +211,22 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
           <View style={styles.content}>
             {/* Title */}
             <View style={styles.titleContainer}>
-              <Text style={styles.title}>
-                Banking Information
-              </Text>
-              <Text style={styles.subtitle}>
-                Add your banking details to receive payments for completed deliveries
-              </Text>
+              <View style={styles.titleRow}>
+                <View style={styles.titleContent}>
+                  <Text style={styles.title}>
+                    Banking Information
+                  </Text>
+                  <Text style={styles.subtitle}>
+                    Add your banking details to receive payments for completed deliveries
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.infoButton}
+                  onPress={() => setInfoModalVisible(true)}
+                >
+                  <Icon name="info" type="Feather" size={20} color={Colors.primary} />
+                </TouchableOpacity>
+              </View>
             </View>
             
             
@@ -339,50 +360,6 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
               ) : null}
             </View>
 
-            
-            {/* Security Notice */}
-            <View style={styles.securityCard}>
-              <View style={styles.securityHeader}>
-                <Icon name="shield" type="Feather" size={18} color={Colors.success} />
-                <Text style={styles.securityTitle}>Your Information is Secure</Text>
-              </View>
-              <View style={styles.securityContent}>
-                <View style={styles.securityItem}>
-                  <Icon name="lock" type="Feather" size={16} color={Colors.success} />
-                  <Text style={styles.securityText}>Bank-level encryption protects your data</Text>
-                </View>
-                <View style={styles.securityItem}>
-                  <Icon name="eye-off" type="Feather" size={16} color={Colors.success} />
-                  <Text style={styles.securityText}>Details are never shared with customers</Text>
-                </View>
-                <View style={styles.securityItem}>
-                  <Icon name="check-circle" type="Feather" size={16} color={Colors.success} />
-                  <Text style={styles.securityText}>Used only for secure payment processing</Text>
-                </View>
-              </View>
-            </View>
-            
-            {/* Payment Info */}
-            <View style={styles.paymentCard}>
-              <View style={styles.paymentHeader}>
-                <Icon name="info" type="Feather" size={18} color={Colors.info} />
-                <Text style={styles.paymentTitle}>How You Get Paid</Text>
-              </View>
-              <View style={styles.paymentContent}>
-                <Text style={styles.paymentText}>
-                  • Payments are processed automatically after delivery completion
-                </Text>
-                <Text style={styles.paymentText}>
-                  • Funds typically arrive within 2-3 business days
-                </Text>
-                <Text style={styles.paymentText}>
-                  • You'll receive detailed payment notifications via email
-                </Text>
-                <Text style={styles.paymentText}>
-                  • Track your earnings in the app's dashboard
-                </Text>
-              </View>
-            </View>
           </View>
         </ScrollView>
         
@@ -398,6 +375,93 @@ const TransporterBankingScreen: React.FC<TransporterBankingScreenProps> = ({ nav
           />
         </View>
       </KeyboardAvoidingView>
+
+      {/* Banking Info Modal */}
+      <Modal
+        visible={infoModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setInfoModalVisible(false)}
+      >
+        <View style={styles.infoModalOverlay}>
+          <View style={styles.infoModalContent}>
+            <View style={styles.infoModalHeader}>
+              <Text style={styles.infoModalTitle}>Banking Information</Text>
+              <TouchableOpacity onPress={() => setInfoModalVisible(false)}>
+                <Icon name="x" type="Feather" size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.infoScrollView} showsVerticalScrollIndicator={false}>
+              {/* Security Notice */}
+              <View style={styles.infoSection}>
+                <View style={styles.infoSectionHeader}>
+                  <Icon name="shield" type="Feather" size={20} color={Colors.success} />
+                  <Text style={styles.infoSectionTitle}>Your Information is Secure</Text>
+                </View>
+                <View style={styles.infoSectionContent}>
+                  <View style={styles.infoItem}>
+                    <Icon name="lock" type="Feather" size={16} color={Colors.success} />
+                    <Text style={styles.infoText}>Bank-level encryption protects your data</Text>
+                  </View>
+                  <View style={styles.infoItem}>
+                    <Icon name="eye-off" type="Feather" size={16} color={Colors.success} />
+                    <Text style={styles.infoText}>Details are never shared with customers</Text>
+                  </View>
+                  <View style={styles.infoItem}>
+                    <Icon name="check-circle" type="Feather" size={16} color={Colors.success} />
+                    <Text style={styles.infoText}>Used only for secure payment processing</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Payment Info */}
+              <View style={styles.infoSection}>
+                <View style={styles.infoSectionHeader}>
+                  <Icon name="dollar-sign" type="Feather" size={20} color={Colors.primary} />
+                  <Text style={styles.infoSectionTitle}>How You Get Paid</Text>
+                </View>
+                <View style={styles.infoSectionContent}>
+                  <Text style={styles.infoText}>
+                    • Payments are processed automatically after delivery completion
+                  </Text>
+                  <Text style={styles.infoText}>
+                    • Funds typically arrive within 2-3 business days
+                  </Text>
+                  <Text style={styles.infoText}>
+                    • You'll receive detailed payment notifications via email
+                  </Text>
+                  <Text style={styles.infoText}>
+                    • Track your earnings in the app's dashboard
+                  </Text>
+                </View>
+              </View>
+
+              {/* Requirements Info */}
+              <View style={styles.infoSection}>
+                <View style={styles.infoSectionHeader}>
+                  <Icon name="file-text" type="Feather" size={20} color={Colors.info} />
+                  <Text style={styles.infoSectionTitle}>What We Need</Text>
+                </View>
+                <View style={styles.infoSectionContent}>
+                  <Text style={styles.infoText}>
+                    • Valid Canadian bank account details
+                  </Text>
+                  <Text style={styles.infoText}>
+                    • Clear photo of specimen cheque or bank statement
+                  </Text>
+                  <Text style={styles.infoText}>
+                    • Account holder name must match your legal name
+                  </Text>
+                  <Text style={styles.infoText}>
+                    • Account must support electronic transfers
+                  </Text>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -439,6 +503,25 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     marginBottom: 32,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  titleContent: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  infoButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary + '10',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
   },
   title: {
     fontSize: 28,
@@ -538,63 +621,66 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     flex: 1,
   },
-  securityCard: {
-    backgroundColor: Colors.success + '10',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.success + '20',
+  // Info Modal Styles
+  infoModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoModalContent: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    width: '90%',
+    maxHeight: '80%',
+    padding: 0,
+    overflow: 'hidden',
+  },
+  infoModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  infoModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  infoScrollView: {
+    flex: 1,
+    padding: 20,
+  },
+  infoSection: {
     marginBottom: 24,
   },
-  securityHeader: {
+  infoSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
-  securityTitle: {
+  infoSectionTitle: {
     fontSize: 16,
     color: Colors.textPrimary,
     fontWeight: '600',
     marginLeft: 8,
   },
-  securityContent: {
+  infoSectionContent: {
     gap: 8,
+    paddingLeft: 28,
   },
-  securityItem: {
+  infoItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  securityText: {
+  infoText: {
     fontSize: 14,
     color: Colors.textPrimary,
     lineHeight: 20,
-  },
-  paymentCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  paymentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  paymentTitle: {
-    fontSize: 16,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  paymentContent: {
-    gap: 8,
-  },
-  paymentText: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    lineHeight: 20,
+    flex: 1,
   },
   buttonContainer: {
     paddingHorizontal: 24,

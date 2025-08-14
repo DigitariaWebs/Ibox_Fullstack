@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors } from '../config/colors';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -68,7 +69,7 @@ interface UserProfile {
 const ModernProfileScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { user: authUser, logout } = useAuth();
+  const { user: authUser, logout, getCurrentUser } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,8 +119,10 @@ const ModernProfileScreen: React.FC = () => {
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       // Check if we're returning from EditProfile
-      const state = navigation.getState();
-      const previousRoute = state.routes[state.index - 1];
+      const navState = typeof (navigation as any).getState === 'function' 
+        ? (navigation as any).getState() 
+        : undefined;
+      const previousRoute = navState?.routes?.[navState.index - 1];
       
       if (previousRoute?.name === 'EditProfile') {
         console.log('📱 Returning from EditProfile - refreshing profile');
@@ -227,6 +230,107 @@ const ModernProfileScreen: React.FC = () => {
     const diffHours = Math.floor(diffMinutes / 60);
     if (diffHours === 1) return '1 hour ago';
     return `${diffHours} hours ago`;
+  };
+
+  const handleProfilePicturePress = () => {
+    Alert.alert(
+      'Change Profile Picture',
+      'Choose an option',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Camera', onPress: takePicture },
+        { text: 'Photo Library', onPress: pickImage },
+      ]
+    );
+  };
+
+  const takePicture = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Camera permission is required to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'] as any,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadProfilePicture(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error taking picture:', error);
+      Alert.alert('Error', 'Failed to take picture. Please try again.');
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Photo library permission is required to select images.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'] as any,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadProfilePicture(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
+  };
+
+  const uploadProfilePicture = async (imageUri: string) => {
+    try {
+      setIsSyncing(true);
+
+      // Ensure absolute URL when backend returns a relative path
+      const toAbsoluteUrl = (url?: string) => {
+        if (!url) return '';
+        if (/^https?:\/\//i.test(url)) return url;
+        const base = (api.getConfig().baseUrl || '').replace('/api/v1', '');
+        return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+      };
+
+      // Use the upload API that properly handles multipart form data
+      const result = await api.uploadFile(imageUri, 'profile');
+
+      if (result.success && result.url) {
+        const newUrl = toAbsoluteUrl(result.url);
+
+        // Update UI immediately
+        setProfile(prev => (prev ? { ...prev, profilePicture: newUrl } : prev));
+
+        // Best-effort refresh of AuthContext user data
+        try {
+          await getCurrentUser();
+        } catch {}
+
+        Alert.alert('Success', 'Profile picture updated successfully!');
+
+        // Silent refresh from server
+        await fetchProfileData(true);
+      } else {
+        Alert.alert('Error', result.message || 'Failed to upload profile picture.');
+      }
+    } catch (error) {
+      console.error('Error uploading profile picture:', error);
+      Alert.alert('Error', 'Failed to upload profile picture. Please try again.');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const renderStatsCard = () => {
@@ -409,7 +513,7 @@ const ModernProfileScreen: React.FC = () => {
         <View style={styles.errorContainer}>
           <MaterialIcons name="error-outline" size={60} color={Colors.error} />
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchProfileData}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => fetchProfileData()}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -464,7 +568,11 @@ const ModernProfileScreen: React.FC = () => {
       >
         {/* Profile Header */}
         <View style={styles.profileHeader}>
-          <View style={styles.avatarContainer}>
+          <TouchableOpacity 
+            style={styles.avatarContainer}
+            onPress={handleProfilePicturePress}
+            activeOpacity={0.8}
+          >
             {profile.profilePicture ? (
               <Image source={{ uri: profile.profilePicture }} style={styles.avatar} />
             ) : (
@@ -484,7 +592,10 @@ const ModernProfileScreen: React.FC = () => {
                 color={Colors.white} 
               />
             </View>
-          </View>
+            <View style={styles.cameraOverlay}>
+              <Ionicons name="camera" size={16} color={Colors.white} />
+            </View>
+          </TouchableOpacity>
 
           <Text style={styles.profileName}>
             {profile.firstName} {profile.lastName}
@@ -704,6 +815,19 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
+  },
+  cameraOverlay: {
+    position: 'absolute',
+    bottom: 5,
+    left: 5,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
