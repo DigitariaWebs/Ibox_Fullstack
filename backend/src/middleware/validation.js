@@ -665,6 +665,66 @@ export const sanitizeInput = (req, res, next) => {
   next();
 };
 
+// Google Auth validation
+export const validateGoogleAuth = [
+  body('userType')
+    .optional()
+    .isIn(['customer', 'transporter'])
+    .withMessage('User type must be customer or transporter'),
+  
+  body('language')
+    .optional()
+    .isIn(['en', 'fr'])
+    .withMessage('Language must be en or fr'),
+  
+  body('phone')
+    .optional()
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage('Please provide a valid phone number'),
+  
+  handleValidationErrors,
+];
+
+export const validateProfileCompletion = [
+  body('phone')
+    .optional()
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage('Please provide a valid phone number'),
+  
+  body('userType')
+    .optional()
+    .isIn(['customer', 'transporter'])
+    .withMessage('User type must be customer or transporter'),
+  
+  body('addresses')
+    .optional()
+    .isArray()
+    .withMessage('Addresses must be an array'),
+  
+  body('addresses.*.type')
+    .optional()
+    .isIn(['primary', 'secondary', 'work', 'other'])
+    .withMessage('Address type must be primary, secondary, work, or other'),
+  
+  body('addresses.*.address')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Address is required'),
+  
+  body('businessDetails')
+    .optional()
+    .isObject()
+    .withMessage('Business details must be an object'),
+  
+  body('transporterDetails')
+    .optional()
+    .isObject()
+    .withMessage('Transporter details must be an object'),
+  
+  handleValidationErrors,
+];
+
 // Rate limiting validation
 export const rateLimitValidation = {
   checkIdentifier: (req, res, next) => {

@@ -186,6 +186,42 @@ Detailed implementation roadmap available in `/BACKEND_PLAN.md` with:
 3. **Phase 3**: Implement real-time features and order management
 4. **Phase 4**: Add Google authentication and advanced features
 
+## Pending Issues (2025-01-12)
+
+### Google OAuth Sign-In Not Working
+**Problem**: The "Continue with Google" button is implemented but the OAuth flow is not opening the sign-in screen in Expo Go.
+
+**Current Implementation Status**:
+- ✅ Backend Google auth routes created (`/api/v1/auth/google`)
+- ✅ Firebase Admin SDK configured in backend
+- ✅ User model updated with OAuth fields (googleId, firebaseUid, authProvider)
+- ✅ Frontend packages installed (expo-auth-session, expo-crypto, expo-web-browser)
+- ✅ Google Sign-In button added to AuthSelectionScreen
+- ❌ OAuth flow not triggering properly
+
+**What Was Tried**:
+1. Used Expo's test client ID: `603386649315-vp4revvrcgrcjme51ebuhbkbspl048l9.apps.googleusercontent.com`
+2. Added iosClientId and androidClientId properties
+3. Configured environment variables with Firebase Web Client ID
+
+**Next Steps to Fix**:
+1. Check if `promptAsync()` is being called correctly
+2. Verify WebBrowser.maybeCompleteAuthSession() is at the top level
+3. Test with different OAuth configurations
+4. Consider using @react-native-google-signin/google-signin package instead
+5. Ensure proper redirect URIs are configured
+
+**Files Involved**:
+- `/src/AuthSelectionScreen.tsx` - Google Sign-In button implementation
+- `/src/services/googleAuth.ts` - Google auth service
+- `/src/config/googleAuth.ts` - OAuth client configuration
+- `/backend/src/controllers/googleAuthController.js` - Backend handler
+- `/backend/src/routes/googleAuth.js` - API routes
+
+**Environment Variables Set**:
+- Backend: `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=79631645506-9jg545mflqfvl8v50lc1gsthj4cotsld.apps.googleusercontent.com`
+- Frontend: Same client ID in `.env`
+
 ## Change Log
 - Initial project setup and documentation created
 - **Authentication Flow Changes**:

@@ -91,8 +91,16 @@ ibox_fullstack/
 ## API Endpoints
 
 ### Base URL
-- Development: `http://192.168.1.14:5000/api/v1`
-- Production: TBD
+Development URLs (automatically detected by platform):
+- **Android Emulator**: `http://10.0.2.2:5000/api/v1`
+- **iOS Simulator**: `http://localhost:5000/api/v1`
+- **Physical Device**: Use your computer's IP address (e.g., `http://192.168.x.x:5000/api/v1`)
+- **Production**: TBD
+
+To find your computer's IP address:
+- Windows: Run `ipconfig` and look for IPv4 Address
+- Mac/Linux: Run `ifconfig` or `ip addr show`
+- Make sure your phone and computer are on the same network
 
 ### Main Endpoints
 - `/auth/*` - Authentication (login, register, logout, refresh)

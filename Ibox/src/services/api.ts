@@ -1,15 +1,55 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // API Configuration
-// For development, try these alternatives:
-// - iOS Simulator on Mac: Use your Mac's IP address
-// - Android Emulator: Use 10.0.2.2
-// - Physical device: Use your computer's local network IP
-// - WSL/Windows: Use the Windows host IP (usually found with ipconfig)
+// IMPORTANT: Choose the correct URL based on your development environment:
+// - Android Emulator: Use 'http://10.0.2.2:5000/api/v1'
+// - iOS Simulator: Use 'http://localhost:5000/api/v1' 
+// - Physical Device: Use your computer's IP address (e.g., 'http://192.168.1.14:5000/api/v1')
+// - WSL/Windows: Use the Windows host IP from ipconfig
+
+import { Platform } from 'react-native';
+
+// Auto-detect the correct API URL based on platform
+const getApiUrl = () => {
+  if (!__DEV__) {
+    return 'https://your-production-api.com/api/v1';
+  }
+
+  // Check for environment variable first (highest priority)
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    console.log('📍 Using API URL from environment variable');
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+
+  // For Android Emulator
+  if (Platform.OS === 'android') {
+    // Android emulator uses 10.0.2.2 to access host machine
+    return 'http://10.0.2.2:5000/api/v1';
+  }
+  
+  // For iOS - need to detect if simulator or physical device
+  if (Platform.OS === 'ios') {
+    // For physical iOS devices, we must use the computer's IP address
+    // Update this with your computer's IP address when testing on real device
+    const isSimulator = !Platform.isPad && !Platform.isTV && 
+                       (Platform.Version === 'undefined' || Platform.Version === null);
+    
+    if (isSimulator) {
+      return 'http://localhost:5000/api/v1';
+    } else {
+      // Physical iOS device - use your computer's IP address
+      // You need to use your Windows/Mac IP address (not WSL IP)
+      // Find it with: Windows: ipconfig | Mac: ifconfig
+      return 'http://192.168.1.14:5000/api/v1';
+    }
+  }
+
+  // Default fallback - your computer's IP address
+  return 'http://192.168.1.14:5000/api/v1';
+};
+
 const API_CONFIG = {
-  BASE_URL: __DEV__ 
-    ? 'http://192.168.1.14:5000/api/v1'  // Use localhost for development
-    : 'https://your-production-api.com/api/v1',
+  BASE_URL: getApiUrl(),
   TIMEOUT: 30000, // 30 seconds
   RETRY_COUNT: 3,
 };
@@ -122,6 +162,10 @@ class ApiService {
     this.baseUrl = API_CONFIG.BASE_URL;
     this.timeout = API_CONFIG.TIMEOUT;
     this.retryCount = API_CONFIG.RETRY_COUNT;
+    
+    // Log the API URL being used
+    console.log('🌐 API Service initialized with URL:', this.baseUrl);
+    console.log('📱 Platform:', Platform.OS);
   }
 
   // Token Management
@@ -212,7 +256,7 @@ class ApiService {
         if (withAuth) {
           const accessToken = await this.getAccessToken();
           if (accessToken) {
-            headers.Authorization = `Bearer ${accessToken}`;
+            (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
           }
         }
 
