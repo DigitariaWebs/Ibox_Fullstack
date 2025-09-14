@@ -9,7 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Button, Text, Icon, Input } from '../../ui';
+import { Text, Icon, Input } from '../../ui';
+import IOSButton from '../../components/iOSButton';
+import SignupLayout from '../../components/SignupLayout';
 import { Colors } from '../../config/colors';
 import { useSignUp } from '../../contexts/SignUpContext';
 import { identitySchema, getPasswordStrength } from '../../validation/signUpSchemas';
@@ -119,13 +121,12 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
+    <SignupLayout step={2} totalSteps={6}>
       
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-                      <Icon name="chevron-left" type="Feather" size={24} color={Colors.textPrimary} />
+                      <Icon name="chevron-left" type="Feather" size={24} color={Colors.white} />
         </TouchableOpacity>
         <Text style={styles.stepIndicator}>Step 2 of 6</Text>
       </View>
@@ -160,7 +161,8 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
                     value={formData.firstName}
                     onChangeText={(value) => updateField('firstName', value)}
                     error={errors.firstName}
-                    leftIcon={<Icon name="user" type="Feather" size={20} color={Colors.textSecondary} />}
+                    leftIcon={<Icon name="user" type="Feather" size={20} color={Colors.white} />}
+                    contrast="light"
                   />
                 </View>
                 <View style={styles.nameField}>
@@ -169,6 +171,7 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
                     value={formData.lastName}
                     onChangeText={(value) => updateField('lastName', value)}
                     error={errors.lastName}
+                    contrast="light"
                   />
                 </View>
               </View>
@@ -182,7 +185,8 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
                 autoCapitalize="none"
                 autoCorrect={false}
                 error={errors.email}
-                leftIcon={<Icon name="mail" type="Feather" size={20} color={Colors.textSecondary} />}
+                leftIcon={<Icon name="mail" type="Feather" size={20} color={Colors.white} />}
+                contrast="light"
                 style={styles.inputField}
               />
               
@@ -193,6 +197,7 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
                 onChangeText={(value) => updateField('phone', value)}
                 error={errors.phone}
                 style={styles.inputField}
+                contrast="light"
               />
               
               {/* Password */}
@@ -202,7 +207,8 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
                 onChangeText={(value) => updateField('password', value)}
                 secureTextEntry
                 error={errors.password}
-                leftIcon={<Icon name="lock" type="Feather" size={20} color={Colors.textSecondary} />}
+                leftIcon={<Icon name="lock" type="Feather" size={20} color={Colors.white} />}
+                contrast="light"
                 style={styles.inputField}
               />
               
@@ -233,7 +239,8 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
                 onChangeText={(value) => updateField('confirmPassword', value)}
                 secureTextEntry
                 error={errors.confirmPassword}
-                leftIcon={<Icon name="lock" type="Feather" size={20} color={Colors.textSecondary} />}
+                leftIcon={<Icon name="lock" type="Feather" size={20} color={Colors.white} />}
+                contrast="light"
                 style={styles.inputField}
               />
               
@@ -264,17 +271,16 @@ const IdentityScreen: React.FC<IdentityScreenProps> = ({ navigation }) => {
         
         {/* Next Button */}
         <View style={styles.buttonContainer}>
-          <Button
+          <IOSButton
             title="Continue"
             onPress={handleNext}
-            variant="primary"
+            isVisible={true}
             disabled={!isValid}
             style={styles.nextButton}
-            icon={<Icon name="arrow-right" type="Feather" size={20} color={Colors.white} />}
           />
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </SignupLayout>
   );
 };
 

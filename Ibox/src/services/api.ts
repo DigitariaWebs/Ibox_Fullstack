@@ -36,7 +36,7 @@ async function initializeApiConfig() {
       // Fallback URL
       API_CONFIG.BASE_URL = Platform.OS === 'android' 
         ? 'http://10.0.2.2:5000/api/v1'
-        : 'http://localhost:5000/api/v1';
+        : 'http://192.168.1.12:5000/api/v1';
     }
   })();
 
@@ -413,14 +413,16 @@ class ApiService {
     }, false);
 
     if (response.success && response.data) {
-      // Extract tokens from the nested structure
-      const { user, tokens } = response.data;
-      await this.storeTokens(tokens.accessToken, tokens.refreshToken);
-      return {
-        user,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken
-      };
+      // Support both nested and flat token structures
+      const data: any = response.data as any;
+      const accessToken = data.tokens?.accessToken || data.accessToken;
+      const refreshToken = data.tokens?.refreshToken || data.refreshToken;
+      const user = data.user || data.userData || null;
+
+      if (accessToken && refreshToken) {
+        await this.storeTokens(accessToken, refreshToken);
+        return { user, accessToken, refreshToken } as AuthResponse;
+      }
     }
 
     // Log detailed error information
@@ -439,14 +441,15 @@ class ApiService {
     }, false);
 
     if (response.success && response.data) {
-      // Extract tokens from the nested structure
-      const { user, tokens } = response.data;
-      await this.storeTokens(tokens.accessToken, tokens.refreshToken);
-      return {
-        user,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken
-      };
+      const data: any = response.data as any;
+      const accessToken = data.tokens?.accessToken || data.accessToken;
+      const refreshToken = data.tokens?.refreshToken || data.refreshToken;
+      const user = data.user || data.userData || null;
+
+      if (accessToken && refreshToken) {
+        await this.storeTokens(accessToken, refreshToken);
+        return { user, accessToken, refreshToken } as AuthResponse;
+      }
     }
 
     // Log detailed error information
@@ -1035,6 +1038,28 @@ class ApiService {
     return this.makeRequest<T>(endpoint, options, true);
   }
 
+  // OTP endpoints (no direct Postmark on frontend; call backend)
+  async sendOTP(email: string, firstName?: string) {
+    return this.makeRequest<any>(`/auth/send-otp`, {
+      method: 'POST',
+      body: JSON.stringify({ email, firstName })
+    }, false);
+  }
+
+  async verifyOTP(email: string, otp: string) {
+    return this.makeRequest<any>(`/auth/verify-otp`, {
+      method: 'POST',
+      body: JSON.stringify({ email, otp })
+    }, false);
+  }
+
+  async completeRegistration(payload: any & { email: string; otp: string }) {
+    return this.makeRequest<any>(`/auth/complete-registration`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }, false);
+  }
+
   // Utility Methods
   async checkConnection(): Promise<boolean> {
     try {
@@ -1066,13 +1091,7 @@ class ApiService {
   }
 
   // Get current configuration
-  getConfig() {
-    return {
-      baseUrl: this.baseUrl,
-      timeout: this.timeout,
-      retryCount: this.retryCount,
-    };
-  }
+  // (method defined earlier in the class to avoid duplication)
 }
 
 // Create singleton instance

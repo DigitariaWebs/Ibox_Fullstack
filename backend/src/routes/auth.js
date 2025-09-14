@@ -9,6 +9,8 @@ import {
   sanitizeInput,
   rateLimitValidation 
 } from '../middleware/validation.js';
+import { body } from 'express-validator';
+import otpService from '../services/otpService.js';
 
 const router = express.Router();
 
@@ -59,6 +61,35 @@ router.use(generalRateLimit);
 router.use(sanitizeInput);
 
 // Public authentication routes
+router.post('/send-otp',
+  strictRateLimit,
+  authValidation.checkEmail,
+  handleValidationErrors,
+  (req, res) => authController.sendOTP(req, res)
+);
+
+router.post('/verify-otp',
+  strictRateLimit,
+  authValidation.checkEmail,
+  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+  handleValidationErrors,
+  (req, res) => authController.verifyOTP(req, res)
+);
+
+router.post('/resend-otp',
+  moderateRateLimit,
+  authValidation.checkEmail,
+  handleValidationErrors,
+  (req, res) => authController.resendOTP(req, res)
+);
+
+router.post('/complete-registration',
+  strictRateLimit,
+  authValidation.register,
+  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+  handleValidationErrors,
+  (req, res) => authController.completeRegistration(req, res)
+);
 router.post('/register', 
   strictRateLimit,
   rateLimitValidation.checkIdentifier,
@@ -114,6 +145,36 @@ router.get('/health', (req, res) => {
     service: 'auth'
   });
 });
+
+// Test email endpoint (development only)
+if (process.env.NODE_ENV === 'development') {
+  router.post('/test-email', async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is required'
+        });
+      }
+      
+      const emailService = (await import('../services/emailService.js')).default;
+      const result = await emailService.testConnection();
+      
+      res.json({
+        success: true,
+        message: 'Email service test completed',
+        result: result
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Email service test failed',
+        error: error.message
+      });
+    }
+  });
+}
 
 // Protected authentication routes (require valid JWT)
 router.use(protect); // All routes below require authentication

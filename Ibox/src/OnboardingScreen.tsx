@@ -1,118 +1,111 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Image, Animated, Easing, Dimensions, PanResponder } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, Image, Dimensions } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+  withDelay,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Button, Text } from './ui';
 import { Colors } from './config/colors';
-import { Fonts } from './config/fonts';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import OnboardingText from './components/OnboardingText';
+import IOSButton from './components/iOSButton';
 
 const { width, height } = Dimensions.get('window');
 
 interface OnboardingSlide {
   id: number;
   title: string;
-  subtitle?: string;
   specialWord?: string;
-  specialWordIndex?: number;
   buttonText?: string;
-  colors: string[];
-  showButton?: boolean;
+  showButton: boolean;
 }
 
 const OnboardingScreen: React.FC = () => {
   const { completeOnboarding } = useAuth();
   const navigation = useNavigation<any>();
   const [currentSlide, setCurrentSlide] = useState(0);
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const colorTransition = useRef(new Animated.Value(0)).current;
-  
-  const textOpacity = new Animated.Value(0);
-  const textTranslateY = new Animated.Value(30);
-  const buttonOpacity = new Animated.Value(0);
-  const buttonTranslateY = new Animated.Value(50);
+  const [buttonVisible, setButtonVisible] = useState(false);
 
+  // Animation values
+  const translateX = useSharedValue(0);
+  const gestureX = useSharedValue(0);
+  const currentIndex = useSharedValue(0);
+  const logoOpacity = useSharedValue(0);
+  const logoTranslateY = useSharedValue(-30);
+
+  // Original slide data
   const slides: OnboardingSlide[] = [
     {
       id: 1,
-      //i want to make ship more aggrasive
       title: "Ship anything \nwith a single tap.",
       specialWord: "anything",
-      specialWordIndex: 1,
       buttonText: "Let's Go",
-      colors: ['#0AA5A8', '#4DC5C8', '#7B68EE', '#9370DB'],
       showButton: false,
     },
     {
       id: 2,
       title: "Track every parcel \nlive to your door.",
       specialWord: "live",
-      specialWordIndex: 3,
-      colors: ['#0AA5A8', '#4DC5C8', '#7B68EE', '#9370DB'],
+      buttonText: "Continue",
       showButton: false,
     },
     {
       id: 3,
       title: "Trucks, pallets, storage — \nall in one app.",
       specialWord: "all",
-      specialWordIndex: 4,
       buttonText: "Get Started",
-      colors: ['#0AA5A8', '#4DC5C8', '#7B68EE', '#9370DB'],
       showButton: true,
     },
   ];
 
-  const animateSlideEntrance = () => {
-    // Reset animations
-    textOpacity.setValue(0);
-    textTranslateY.setValue(30);
-    buttonOpacity.setValue(0);
-    buttonTranslateY.setValue(50);
+  // Original gradient colors
+  const gradientColors = ['#0AA5A8', '#4DC5C8', '#7B68EE', '#9370DB'];
 
-    // Staggered entrance animations
-    Animated.sequence([
-      // Text animation (after 200ms delay)
-      Animated.parallel([
-        Animated.timing(textOpacity, {
-          toValue: 1,
-          duration: 600,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(textTranslateY, {
-          toValue: 0,
-          duration: 600,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
-      // Button animation (after 300ms delay)
-      Animated.parallel([
-        Animated.timing(buttonOpacity, {
-          toValue: 1,
-          duration: 600,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(buttonTranslateY, {
-          toValue: 0,
-          duration: 600,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start();
+  // Logo entrance animation
+  const animateLogoEntrance = () => {
+    logoOpacity.value = 0;
+    logoTranslateY.value = -30;
+
+    logoOpacity.value = withDelay(200, withTiming(1, { duration: 800 }));
+    logoTranslateY.value = withDelay(200, withSpring(0, {
+      damping: 20,
+      stiffness: 150,
+    }));
   };
 
-  const animateColorTransition = () => {
-    Animated.timing(colorTransition, {
-      toValue: currentSlide,
-      duration: 800,
-      easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
-      useNativeDriver: false,
-    }).start();
+  // Helper function to show button after slide completes
+  const showButtonWithDelay = (slideIndex: number) => {
+    setTimeout(() => {
+      setButtonVisible(slides[slideIndex].showButton);
+    }, 200);
   };
 
+  // Slide transition function
+  const goToSlide = (slideIndex: number) => {
+    if (slideIndex === currentSlide) return;
+
+    const direction = slideIndex > currentSlide ? -1 : 1;
+
+    // Only hide button, keep text visible to avoid flicker
+    setButtonVisible(false);
+
+    // Switch content immediately, then snap in quickly from the correct side
+    setCurrentSlide(slideIndex);
+    currentIndex.value = slideIndex;
+    translateX.value = -direction * width;
+    translateX.value = withTiming(0, { duration: 160 }, () => {
+      // Show button after delay, text handles its own animation
+      runOnJS(showButtonWithDelay)(slideIndex);
+    });
+  };
+
+  // Navigation functions
   const nextSlide = () => {
     if (currentSlide < slides.length - 1) {
       goToSlide(currentSlide + 1);
@@ -128,233 +121,127 @@ const OnboardingScreen: React.FC = () => {
     }
   };
 
-  const goToSlide = (slideIndex: number) => {
-    const direction = slideIndex > currentSlide ? -1 : 1;
-    
-    // Start color transition animation
-    Animated.timing(colorTransition, {
-      toValue: slideIndex,
-      duration: 600,
-      easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
-      useNativeDriver: false,
-    }).start();
+  // Enhanced pan gesture for smooth swiping
+  const panGesture = Gesture.Pan()
+    .onStart(() => {
+      'worklet';
+      gestureX.value = translateX.value;
+    })
+    .onUpdate((event) => {
+      'worklet';
+      translateX.value = gestureX.value + event.translationX;
+    })
+    .onEnd((event) => {
+      'worklet';
+      const { translationX, velocityX } = event;
+      const swipeThreshold = width * 0.2;
+      const velocityThreshold = 800;
 
-    // Slide out current content
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: direction * width,
-        duration: 400,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setCurrentSlide(slideIndex);
-      slideAnim.setValue(-direction * width);
-      
-      // Slide in new content
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 400,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start(() => {
-        animateSlideEntrance();
-      });
-    });
-  };
-
-  // Pan responder for swipe gestures
-  const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => {
-      return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
-    },
-    onPanResponderMove: (_, gestureState) => {
-      slideAnim.setValue(gestureState.dx);
-    },
-    onPanResponderRelease: (_, gestureState) => {
-      const { dx, vx } = gestureState;
-      const swipeThreshold = width * 0.25;
-      const velocityThreshold = 0.5;
-
-      if ((dx > swipeThreshold || vx > velocityThreshold) && currentSlide > 0) {
-        // Swipe right - go to previous slide
-        prevSlide();
-      } else if ((dx < -swipeThreshold || vx < -velocityThreshold) && currentSlide < slides.length - 1) {
-        // Swipe left - go to next slide
-        nextSlide();
+      if (
+        (translationX > swipeThreshold || velocityX > velocityThreshold) &&
+        currentSlide > 0
+      ) {
+        runOnJS(prevSlide)();
+      } else if (
+        (translationX < -swipeThreshold || velocityX < -velocityThreshold) &&
+        currentSlide < slides.length - 1
+      ) {
+        runOnJS(nextSlide)();
       } else {
-        // Snap back to current position
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-        }).start();
+        translateX.value = withSpring(0, {
+          damping: 25,
+          stiffness: 300,
+        });
       }
-    },
-  });
+    })
+    .failOffsetY([-20, 20])
+    .activeOffsetX([-15, 15]);
 
+  // Initialize logo animation and set initial button visibility
   useEffect(() => {
-    animateSlideEntrance();
-    animateColorTransition();
-  }, [currentSlide]);
+    animateLogoEntrance();
+    setButtonVisible(slides[0].showButton);
+    currentIndex.value = 0;
+  }, []);
 
-  const renderTitle = (title: string, specialWord?: string, specialWordIndex?: number) => {
-    const titleStyle = styles.title;
-    const emphasisStyle = styles.titleEmphasis;
+  // Remove this useEffect - we'll handle visibility in goToSlide function only
 
-    if (!specialWord || specialWordIndex === undefined) {
-      return (
-        <Text variant="h1" weight="bold" style={titleStyle}>
-          {title}
-        </Text>
-      );
-    }
-
-    const words = title.split(' ');
-    return (
-      <Text variant="h1" weight="bold" style={titleStyle}>
-        {words.map((word, index) => {
-          const cleanWord = word.replace('\n', '');
-          const isSpecialWord = cleanWord.toLowerCase() === specialWord.toLowerCase();
-          const hasLineBreak = word.includes('\n');
-          
-          return (
-            <React.Fragment key={index}>
-              {hasLineBreak && word.startsWith('\n') && '\n'}
-              <Text
-                variant="h1"
-                weight="bold"
-                style={[
-                  emphasisStyle,
-                  isSpecialWord && styles.specialFont
-                ]}
-              >
-                {cleanWord}
-              </Text>
-              {index < words.length - 1 && ' '}
-              {hasLineBreak && word.endsWith('\n') && '\n'}
-            </React.Fragment>
-          );
-        })}
-      </Text>
-    );
-  };
-
+  // Current slide data
   const currentSlideData = slides[currentSlide];
-  
-  // Create interpolated colors for smooth transitions
-  const getInterpolatedColors = () => {
-    const allColors = slides.map(slide => slide.colors);
-    
-    if (currentSlide === 0) {
-      return allColors[0];
-    }
-    
-    // For transitions, we'll use the current slide colors
-    return allColors[currentSlide];
-  };
 
-  const interpolatedColors = getInterpolatedColors();
+  // Animated styles
+  const slideAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const logoAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [
+      { translateY: logoTranslateY.value },
+    ],
+  }));
+
+  // No parallax/worm for progress; keep dots static
 
   return (
-    <Animated.View style={styles.container}>
-      {/* Base gradient background */}
+    <View style={styles.container}>
+      {/* Background Gradient */}
       <LinearGradient
-        colors={slides[0].colors as [string, string, ...string[]]}
+        colors={gradientColors as [string, string, ...string[]]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-      
-      {/* Gradient fade-out effect */}
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFillObject,
-          {
-            opacity: colorTransition.interpolate({
-              inputRange: [0, 0.5, 1],
-              outputRange: [1, 0.3, 0],
-              extrapolate: 'clamp',
-            }),
-          },
-        ]}
-      >
-        <LinearGradient
-          colors={slides[0].colors as [string, string, ...string[]]}
-          start={{ x: 0, y: 1 }}
-          end={{ x: 1, y: 0 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      </Animated.View>
 
-      {/* Fixed Logo (not animated, always visible) */}
-      <View style={styles.logoContainer}>
+      {/* Animated Logo */}
+      <Animated.View style={[styles.logoContainer, logoAnimatedStyle]}>
         <Image
           source={require('../assets/images/logo.png')}
           style={styles.logo}
           resizeMode="contain"
         />
-      </View>
-
-      <Animated.View
-        style={[
-          styles.slideContainer,
-          {
-            transform: [{ translateX: slideAnim }],
-          },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        {/* Main Content */}
-        <Animated.View
-          style={[
-            styles.contentContainer,
-            {
-              opacity: textOpacity,
-              transform: [{ translateY: textTranslateY }],
-            },
-          ]}
-        >
-          {renderTitle(
-            currentSlideData.title,
-            currentSlideData.specialWord,
-            currentSlideData.specialWordIndex
-          )}
-        </Animated.View>
-
-        {/* Button (conditionally rendered) */}
-        {currentSlideData.showButton !== false && (
-          <Animated.View
-            style={[
-              styles.buttonContainer,
-              {
-                opacity: buttonOpacity,
-                transform: [{ translateY: buttonTranslateY }],
-              },
-            ]}
-          >
-            <Button
-              title={currentSlideData.buttonText ?? ''}
-              onPress={nextSlide}
-              variant={"primary"}
-              style={styles.button}
-            />
-          </Animated.View>
-        )}
-
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          {slides.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.progressDot,
-                index === currentSlide && styles.progressDotActive,
-              ]}
-            />
-          ))}
-        </View>
       </Animated.View>
-    </Animated.View>
+
+      {/* Main Content with Gesture Handler */}
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={[styles.slideContainer, slideAnimatedStyle]}>
+          {/* Content Section */}
+          <View style={styles.contentSection}>
+            <OnboardingText
+              title={currentSlideData.title}
+              specialWord={currentSlideData.specialWord}
+              isVisible={true}
+            />
+          </View>
+
+          {/* Button Section */}
+          <View style={styles.buttonSection}>
+            {currentSlideData.showButton && (
+              <View style={styles.buttonContainer}>
+                <IOSButton
+                  title={currentSlideData.buttonText || 'Continue'}
+                  onPress={nextSlide}
+                  isVisible={buttonVisible}
+                />
+              </View>
+            )}
+
+            {/* Progress Indicator - static dots with larger active dot */}
+            <View style={styles.progressContainer}>
+              {slides.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.progressDot,
+                    index === currentSlide && styles.progressDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          </View>
+        </Animated.View>
+      </GestureDetector>
+    </View>
   );
 };
 
@@ -364,75 +251,70 @@ const styles = StyleSheet.create({
   },
   slideContainer: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingTop: height * 0.15,
-    paddingBottom: height * 0.1,
-    paddingHorizontal: 32,
+    paddingBottom: height * 0.08,
+    paddingHorizontal: 24,
   },
   logoContainer: {
+    position: 'absolute',
+    top: height * 0.08,
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    marginTop: 60,
+    zIndex: 10,
   },
   logo: {
-    width: 150,
-    height: 150,
+    width: 120,
+    height: 120,
     tintColor: Colors.white,
-    //center the logo
-    alignSelf: 'center',
   },
-  contentContainer: {
+  contentSection: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    width: '100%',
   },
-  title: {
-    fontSize: 54,
-    lineHeight: 62,
-    textAlign: 'center',
-    color: Colors.white,
-    letterSpacing: -0.5,
-  },
-  titleEmphasis: {
-    fontSize: 54,
-    fontStyle: 'italic',
-    color: Colors.white,
-  },
-  //change font
-  specialFont: {
-    fontFamily: Fonts.PlayfairDisplay.Variable,
-    fontStyle: 'normal', // Override the italic style
-    fontSize: 60, // Slightly larger to make it more prominent
-    letterSpacing: 1, // Add some letter spacing for elegance
+  buttonSection: {
+    width: '100%',
+    alignItems: 'center',
   },
   buttonContainer: {
     width: '100%',
-    paddingHorizontal: 20,
-  },
-  button: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 2,
-    borderColor: Colors.white,
-    minHeight: 56,
+    marginBottom: 32,
   },
   progressContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    gap: 8,
+    gap: 12,
+    marginBottom: 20,
   },
   progressDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    shadowColor: 'rgba(0, 0, 0, 0.2)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 2,
+    marginHorizontal: 6,
   },
   progressDotActive: {
-    backgroundColor: '#FFFFFF',
-    width: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    width: 20,
+    height: 8,
+    borderRadius: 4,
+    shadowColor: 'rgba(255, 255, 255, 0.6)',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+    elevation: 4,
   },
+  // no worm/dynamic track when using static dots
 });
 
-export default OnboardingScreen; 
+export default OnboardingScreen;

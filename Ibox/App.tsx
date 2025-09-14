@@ -1,6 +1,6 @@
 import './global.css';
 import React, { useEffect, useRef } from 'react';
-import { SafeAreaView, ScrollView, View, Alert, ActivityIndicator } from 'react-native';
+import { ScrollView, View, Alert, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider, useSelector, useDispatch } from 'react-redux';
@@ -27,10 +27,16 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import MyOrdersScreen from './src/screens/MyOrdersScreen';
 import TrackPackageScreen from './src/screens/TrackPackageScreen';
 import { SignUpProvider } from './src/contexts/SignUpContext';
-import OnboardingEntryScreen from './src/screens/signup/OnboardingEntryScreen';
 import AccountTypeScreen from './src/screens/signup/AccountTypeScreen';
 import IdentityScreen from './src/screens/signup/IdentityScreen';
 import AddressLocaleScreen from './src/screens/signup/AddressLocaleScreen';
+// Modern Signup Screens
+import ModernAccountTypeScreen from './src/screens/signup/ModernAccountTypeScreen';
+import ModernBasicInfoScreen from './src/screens/signup/ModernBasicInfoScreen';
+import ModernBasicInfoStepScreen from './src/screens/signup/ModernBasicInfoStepScreen';
+import ModernOTPVerificationScreen from './src/screens/signup/ModernOTPVerificationScreen';
+import ModernPasswordSetupScreen from './src/screens/signup/ModernPasswordSetupScreen';
+import ModernSignupCompleteScreen from './src/screens/signup/ModernSignupCompleteScreen';
 import CustomerExtrasScreen from './src/screens/signup/CustomerExtrasScreen';
 import PaymentMethodScreen from './src/screens/signup/PaymentMethodScreen';
 import CustomerAccountTypeScreen from './src/screens/signup/CustomerAccountTypeScreen';
@@ -227,10 +233,65 @@ const MainNavigator: React.FC = () => {
         <Stack.Screen name="Login" component={LoginScreen} />
         
         {/* Signup Screens */}
-        <Stack.Screen name="OnboardingEntry" component={OnboardingEntryScreen} />
         <Stack.Screen name="AccountType" component={AccountTypeScreen} />
         <Stack.Screen name="Identity" component={IdentityScreen} />
         <Stack.Screen name="AddressLocaleScreen" component={AddressLocaleScreen} />
+
+        {/* Modern Signup Screens */}
+        <Stack.Screen
+          name="ModernAccountType"
+          component={ModernAccountTypeScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="ModernBasicInfo"
+          component={ModernBasicInfoScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="ModernBasicInfoStep"
+          component={ModernBasicInfoStepScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="ModernOTPVerification"
+          component={ModernOTPVerificationScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="ModernPasswordSetup"
+          component={ModernPasswordSetupScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="ModernSignupComplete"
+          component={ModernSignupCompleteScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
         <Stack.Screen name="CustomerExtras" component={CustomerExtrasScreen} />
         <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} />
         <Stack.Screen name="CustomerAccountType" component={CustomerAccountTypeScreen} />
@@ -455,14 +516,16 @@ export default function App() {
   }
 
   return (
-    <Provider store={store}>
-      <PersistGate loading={null} persistor={persistor}>
-        <AuthProvider>
-          <SignUpProvider>
-            <MainNavigator />
-          </SignUpProvider>
-        </AuthProvider>
-      </PersistGate>
-    </Provider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Provider store={store}>
+        <PersistGate loading={null} persistor={persistor}>
+          <AuthProvider>
+            <SignUpProvider>
+              <MainNavigator />
+            </SignUpProvider>
+          </AuthProvider>
+        </PersistGate>
+      </Provider>
+    </GestureHandlerRootView>
   );
 }

@@ -1,15 +1,25 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { View, StyleSheet, Dimensions, StatusBar, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, StyleSheet, Dimensions, StatusBar, Image, Alert } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import { Button, Text } from './ui';
+import { Text } from './ui';
 import { Icon } from './ui/Icon';
+import IOSButton from './components/iOSButton';
 import { Colors } from './config/colors';
+import { Fonts } from './config/fonts';
+import { PaymentLogos } from './config/assets';
 import { useTranslation } from './config/i18n';
 import { useAuth } from './contexts/AuthContext';
-import LoginModal from './components/LoginModal';
+import ModernLoginModal from './components/ModernLoginModal';
 import googleAuthService from './services/googleAuth';
 import { GOOGLE_CLIENT_IDS } from './config/googleAuth';
 import apiService from './services/api';
@@ -31,6 +41,14 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
   const [isLoginModalVisible, setIsLoginModalVisible] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
+  // Animation values
+  const logoOpacity = useSharedValue(0);
+  const logoTranslateY = useSharedValue(-20);
+  const textOpacity = useSharedValue(0);
+  const textTranslateY = useSharedValue(30);
+  const buttonsOpacity = useSharedValue(0);
+  const buttonsTranslateY = useSharedValue(40);
+
   // Google Auth configuration - Using Expo's default client for demo
   // This works immediately in Expo Go without any setup!
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -51,6 +69,16 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
   });
 
   useEffect(() => {
+    // Initialize entrance animations
+    logoOpacity.value = withDelay(300, withTiming(1, { duration: 800 }));
+    logoTranslateY.value = withDelay(300, withSpring(0, { damping: 20, stiffness: 200 }));
+
+    textOpacity.value = withDelay(600, withTiming(1, { duration: 600 }));
+    textTranslateY.value = withDelay(600, withSpring(0, { damping: 25, stiffness: 250 }));
+
+    buttonsOpacity.value = withDelay(900, withTiming(1, { duration: 500 }));
+    buttonsTranslateY.value = withDelay(900, withSpring(0, { damping: 20, stiffness: 200 }));
+
     // Cleanup function
     return () => {
       player.release();
@@ -67,9 +95,6 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
     }
   }, [response]);
 
-  const getCurrentLanguage = () => {
-    return locale === 'fr' ? 'FR' : 'EN';
-  };
 
   const handleLoginPress = () => {
     setIsLoginModalVisible(true);
@@ -157,6 +182,22 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
     setIsLoginModalVisible(false);
   };
 
+  // Animated styles
+  const logoAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [{ translateY: logoTranslateY.value }],
+  }));
+
+  const textAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: textOpacity.value,
+    transform: [{ translateY: textTranslateY.value }],
+  }));
+
+  const buttonsAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: buttonsOpacity.value,
+    transform: [{ translateY: buttonsTranslateY.value }],
+  }));
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -180,62 +221,57 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
       {/* Content */}
       <View style={styles.content}>
         {/* Logo */}
-        <View style={styles.logoContainer}>
+        <Animated.View style={[styles.logoContainer, logoAnimatedStyle]}>
           <Image
             source={require('../assets/images/logo.png')}
             style={styles.logo}
             resizeMode="contain"
           />
-        </View>
+        </Animated.View>
         
         {/* Main Text */}
-        <View style={styles.textContainer}>
-          <Text variant="h2" weight="bold" style={styles.mainTitle}>
-            {t('explore_possibilities')}
+        <Animated.View style={[styles.textContainer, textAnimatedStyle]}>
+          <View style={styles.titleContainer}>
+            <Text style={styles.titleText}>Ship with </Text>
+            <Text style={styles.specialWord}>confidence</Text>
+          </View>
+          <Text style={styles.subtitle}>
+            Connect with trusted transporters worldwide
           </Text>
-          <Text variant="h2" weight="bold" style={styles.mainTitle}>
-            {t('nearby')}
-          </Text>
-        </View>
+        </Animated.View>
         
         {/* Action Buttons */}
-        <View style={styles.buttonContainer}>
-          <Button
-            title={t('log_in')}
+        <Animated.View style={[styles.buttonContainer, buttonsAnimatedStyle]}>
+          <IOSButton
+            title="Sign In"
             onPress={handleLoginPress}
-            variant="primary"
+            isVisible={true}
             style={styles.primaryButton}
-            icon={<Icon name="log-in" type="Feather" size={22} color={Colors.white} />}
           />
-          
-          <Button
+
+          <IOSButton
             title={isGoogleLoading ? "Signing in..." : "Continue with Google"}
             onPress={handleGoogleSignIn}
-            variant="secondary"
+            isVisible={true}
             style={styles.googleButton}
-            icon={<Icon name="google" type="FontAwesome" size={22} color={Colors.primary} />}
-            disabled={isGoogleLoading || !request}
             loading={isGoogleLoading}
+            disabled={isGoogleLoading || !request}
+            textColor={Colors.textPrimary}
+            icon={
+              <Image
+                source={PaymentLogos.google}
+                style={styles.googleIcon}
+                resizeMode="contain"
+              />
+            }
           />
-        </View>
+        </Animated.View>
         
-        {/* Bottom Section */}
-        <View style={styles.bottomSection}>
-          <TouchableOpacity 
-            style={styles.languageSelector}
-            onPress={() => navigation?.navigate('LanguageSelection')}
-          >
-            <Text style={styles.languageIcon}>🌐</Text>
-            <Text style={styles.languageText}>
-              {getCurrentLanguage()} (US)
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
-      {/* Login Modal */}
+      {/* Modern Login Modal */}
       {isLoginModalVisible && (
-        <LoginModal
+        <ModernLoginModal
           visible={isLoginModalVisible}
           onClose={handleLoginModalClose}
           navigation={navigation}
@@ -252,14 +288,14 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
     paddingTop: 60,
-    paddingBottom: 40,
+    paddingBottom: 50,
     justifyContent: 'space-between',
   },
   logoContainer: {
     alignItems: 'center',
-    marginTop: 40,
+    marginTop: 50,
   },
   logo: {
     width: 120,
@@ -271,23 +307,48 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'flex-start',
     paddingLeft: 8,
+    paddingVertical: 40,
   },
-  mainTitle: {
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  titleText: {
     fontSize: 48,
     lineHeight: 56,
     color: Colors.white,
-    textAlign: 'left',
     letterSpacing: -1,
+    fontWeight: '600',
+  },
+  specialWord: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontSize: 52,
+    lineHeight: 56,
+    color: Colors.white,
+    letterSpacing: -0.5,
+    fontWeight: '400',
+    fontStyle: 'italic',
+  },
+  subtitle: {
+    fontSize: 19,
+    lineHeight: 26,
+    color: 'rgba(255, 255, 255, 0.85)',
+    textAlign: 'left',
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   buttonContainer: {
-    gap: 16,
-    marginBottom: 32,
+    gap: 20,
+    marginBottom: 40,
   },
   primaryButton: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
-    borderRadius: 28,
-    minHeight: 56,
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 54,
     shadowColor: Colors.primary,
     shadowOffset: {
       width: 0,
@@ -301,26 +362,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderColor: Colors.border,
     borderWidth: 1,
-    borderRadius: 28,
-    minHeight: 56,
+    borderRadius: 12,
+    minHeight: 54,
   },
-  bottomSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  languageSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  languageIcon: {
-    fontSize: 20,
-  },
-  languageText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '500',
+  googleIcon: {
+    width: 20,
+    height: 20,
   },
 });
 

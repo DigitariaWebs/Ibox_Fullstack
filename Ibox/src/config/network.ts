@@ -28,7 +28,7 @@ const HEALTH_ENDPOINT = '';
 /**
  * Test if a URL is reachable
  */
-async function testEndpoint(url: string, timeout = 2000): Promise<boolean> {
+async function testEndpoint(url: string, timeout = 8000): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -37,14 +37,39 @@ async function testEndpoint(url: string, timeout = 2000): Promise<boolean> {
     const baseUrl = url.replace('/api/v1', '');
     const healthUrl = `${baseUrl}/health`;
     
+    console.log(`🔍 Testing: ${healthUrl} with timeout: ${timeout}ms`);
+    
     const response = await fetch(healthUrl, {
       method: 'GET',
       signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        'User-Agent': 'iBox-Mobile-App/1.0.0',
+      },
     });
     
     clearTimeout(timeoutId);
-    return response.ok;
+    const isOk = response.ok;
+    console.log(`${isOk ? '✅' : '❌'} ${healthUrl} - Status: ${response.status}`);
+    
+    if (isOk) {
+      try {
+        const data = await response.json();
+        console.log(`📊 Health check response:`, data);
+      } catch (e) {
+        console.log(`⚠️ Could not parse health check response`);
+      }
+    }
+    
+    return isOk;
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log(`⏱️ ${url} - Request timed out after ${timeout}ms`);
+    } else {
+      console.log(`❌ ${url} - Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.log(`🔍 Error details:`, error);
+    }
     return false;
   }
 }
@@ -90,10 +115,16 @@ async function getPossibleUrls(): Promise<string[]> {
       return urls; // If env var is set, only use that
     }
 
-    // 2. Platform-specific defaults
+    // 2. Platform-specific defaults with prioritized network IP
     if (Platform.OS === 'android') {
+      // Prioritize your computer's IP address first
+      urls.push(`http://192.168.1.12:${BACKEND_PORT}${API_PATH}`);
       // Android emulator special IP to access host machine
       urls.push(`http://10.0.2.2:${BACKEND_PORT}${API_PATH}`);
+      
+      // Also try localhost for testing/emulator
+      urls.push(`http://localhost:${BACKEND_PORT}${API_PATH}`);
+      urls.push(`http://127.0.0.1:${BACKEND_PORT}${API_PATH}`);
       
       // Also scan network for physical Android devices
       if (Constants.isDevice) {
@@ -103,15 +134,15 @@ async function getPossibleUrls(): Promise<string[]> {
         });
       }
     } else if (Platform.OS === 'ios') {
+      // Prioritize your computer's IP address first
+      urls.push(`http://192.168.1.12:${BACKEND_PORT}${API_PATH}`);
+      // iOS Simulator - try localhost
+      urls.push(`http://localhost:${BACKEND_PORT}${API_PATH}`);
+      urls.push(`http://127.0.0.1:${BACKEND_PORT}${API_PATH}`);
+      
       if (Constants.isDevice === false) {
-        // iOS Simulator - scan network IPs since localhost often doesn't work
+        // iOS Simulator - also scan network IPs
         const networkIPs = generateNetworkIPs();
-        
-        // Try these first for iOS Simulator
-        urls.push(`http://localhost:${BACKEND_PORT}${API_PATH}`);
-        urls.push(`http://127.0.0.1:${BACKEND_PORT}${API_PATH}`);
-        
-        // Then try all network IPs
         networkIPs.forEach(ip => {
           urls.push(`http://${ip}:${BACKEND_PORT}${API_PATH}`);
         });
@@ -126,6 +157,10 @@ async function getPossibleUrls(): Promise<string[]> {
         urls.push(`http://ibox-backend.local:${BACKEND_PORT}${API_PATH}`);
         urls.push(`http://ibox.local:${BACKEND_PORT}${API_PATH}`);
       }
+    } else {
+      // Default for other platforms (web, etc.)
+      urls.push(`http://localhost:${BACKEND_PORT}${API_PATH}`);
+      urls.push(`http://127.0.0.1:${BACKEND_PORT}${API_PATH}`);
     }
 
   } catch (error) {
@@ -158,14 +193,23 @@ export async function discoverBackendUrl(): Promise<string> {
   console.log('🔍 Starting automatic backend discovery...');
   
   const possibleUrls = await getPossibleUrls();
+  
+  // If we have an environment variable set, use it directly without testing
+  if (process.env.EXPO_PUBLIC_API_URL && possibleUrls.length === 1 && possibleUrls[0] === process.env.EXPO_PUBLIC_API_URL) {
+    console.log('✅ Using API URL from environment variable:', process.env.EXPO_PUBLIC_API_URL);
+    cachedServerUrl = process.env.EXPO_PUBLIC_API_URL;
+    lastDiscoveryTime = now;
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  
   console.log(`🔍 Testing ${possibleUrls.length} possible URLs...`);
   
   // Show first 5 URLs being tested for debugging
   console.log('🔍 Priority URLs:', possibleUrls.slice(0, 5));
 
-  // Test URLs in parallel with a short timeout
+  // Test URLs in parallel with a longer timeout for iOS
   const tests = possibleUrls.map(async (url) => {
-    const isReachable = await testEndpoint(url, 1500);
+    const isReachable = await testEndpoint(url, Platform.OS === 'ios' ? 10000 : 5000);
     if (isReachable) {
       console.log('✅ Found working URL:', url);
     }
@@ -184,25 +228,19 @@ export async function discoverBackendUrl(): Promise<string> {
     return workingUrl.url;
   }
 
-  // If no URL works, try with longer timeout on priority URLs
-  console.log('🔍 Retrying priority URLs with longer timeout...');
-  const priorityUrls = possibleUrls.slice(0, 5);
-  
-  for (const url of priorityUrls) {
-    const isReachable = await testEndpoint(url, 5000);
-    if (isReachable) {
-      console.log('✅ Backend discovered at:', url);
-      cachedServerUrl = url;
-      lastDiscoveryTime = now;
-      return url;
-    }
+  // If we have an environment variable but couldn't connect, still use it
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    console.warn('⚠️ Could not verify backend connection, but using environment variable URL:', process.env.EXPO_PUBLIC_API_URL);
+    cachedServerUrl = process.env.EXPO_PUBLIC_API_URL;
+    lastDiscoveryTime = now;
+    return process.env.EXPO_PUBLIC_API_URL;
   }
 
   // Final fallback
   console.warn('⚠️ Could not discover backend automatically. Using fallback.');
   const fallbackUrl = Platform.OS === 'android' 
     ? `http://10.0.2.2:${BACKEND_PORT}${API_PATH}`
-    : `http://localhost:${BACKEND_PORT}${API_PATH}`;
+    : `http://172.25.8.223:${BACKEND_PORT}${API_PATH}`; // Use IP address for iOS fallback
   
   cachedServerUrl = fallbackUrl;
   lastDiscoveryTime = now;

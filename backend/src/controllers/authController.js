@@ -1,8 +1,82 @@
 import User from '../models/User.js';
 import authService from '../services/authService.js';
+import otpService from '../services/otpService.js';
 import { validationResult } from 'express-validator';
 
 class AuthController {
+  // OTP: Send code to email
+  async sendOTP(req, res) {
+    try {
+      const { email, firstName } = req.body;
+      const result = await otpService.sendOTP(email, firstName || '', {
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to send OTP',
+        code: 'OTP_SEND_ERROR'
+      });
+    }
+  }
+
+  // OTP: Verify code
+  async verifyOTP(req, res) {
+    try {
+      const { email, otp } = req.body;
+      const result = await otpService.verifyOTP(email, otp, {
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'OTP verification failed',
+        code: 'OTP_VERIFY_ERROR'
+      });
+    }
+  }
+
+  // OTP: Resend
+  async resendOTP(req, res) {
+    try {
+      const { email, firstName } = req.body;
+      const result = await otpService.resendOTP(email, firstName || '', {
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to resend OTP',
+        code: 'OTP_RESEND_ERROR'
+      });
+    }
+  }
+
+  // Complete registration after OTP verification
+  async completeRegistration(req, res) {
+    try {
+      const { email, otp } = req.body;
+      // Verify OTP first
+      await otpService.verifyOTP(email, otp, {
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+      // Delegate to existing register logic
+      return this.register(req, res);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Registration could not be completed',
+        code: 'REGISTRATION_OTP_ERROR'
+      });
+    }
+  }
   // Register new user
   async register(req, res) {
     try {

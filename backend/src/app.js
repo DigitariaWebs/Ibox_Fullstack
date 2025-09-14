@@ -329,8 +329,8 @@ const startServer = async () => {
     const server = app.listen(PORT, '0.0.0.0', async () => {
       console.log(`🚀 Server running on port ${PORT} (all interfaces)`);
       console.log(`📡 Environment: ${process.env.NODE_ENV}`);
-      console.log(`🔗 API Base URL: http://localhost:${PORT}${API_BASE_PATH}`);
-      console.log(`💚 Health Check: http://localhost:${PORT}/health`);
+      console.log(`🔗 API Base URL: http://192.168.1.12:${PORT}${API_BASE_PATH}`);
+      console.log(`💚 Health Check: http://192.168.1.12:${PORT}/health`);
       
       if (process.env.NODE_ENV === 'development') {
         console.log(`📚 API Docs: http://localhost:${PORT}/api/docs`);

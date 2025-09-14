@@ -28,6 +28,7 @@ export const PaymentLogos = {
   amex: require("../../assets/images/logos/amex.png"),
   apple: require("../../assets/images/logos/apple.png"),
   gpay: require("../../assets/images/logos/gpay.png"),
+  google: require("../../assets/images/logos/google.png"),
   stripe: require("../../assets/images/logos/stripe.png"),
 } as const;
 

@@ -19,6 +19,9 @@ interface InputProps extends TextInputProps {
   variant?: 'default' | 'outlined' | 'filled';
   size?: 'sm' | 'md' | 'lg';
   required?: boolean;
+  leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
+  contrast?: 'light' | 'dark';
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -28,6 +31,9 @@ export const Input: React.FC<InputProps> = ({
   variant = 'default',
   size = 'md',
   required = false,
+  leftIcon,
+  rightIcon,
+  contrast = 'dark',
   onFocus,
   onBlur,
   style,
@@ -70,6 +76,8 @@ export const Input: React.FC<InputProps> = ({
   const getInputContainerStyle = (): ViewStyle => {
     const baseStyle: ViewStyle = {
       borderRadius: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
     };
 
     // Size styles
@@ -91,17 +99,17 @@ export const Input: React.FC<InputProps> = ({
     // Variant styles
     switch (variant) {
       case 'default':
-        baseStyle.backgroundColor = Colors.surface;
+        baseStyle.backgroundColor = contrast === 'light' ? 'rgba(255,255,255,0.15)' : Colors.surface;
         baseStyle.borderWidth = 1;
-        baseStyle.borderColor = '#E5E7EB';
+        baseStyle.borderColor = contrast === 'light' ? 'rgba(255,255,255,0.35)' : '#E5E7EB';
         break;
       case 'outlined':
-        baseStyle.backgroundColor = 'transparent';
+        baseStyle.backgroundColor = contrast === 'light' ? 'rgba(255,255,255,0.08)' : 'transparent';
         baseStyle.borderWidth = 2;
-        baseStyle.borderColor = '#D1D5DB';
+        baseStyle.borderColor = contrast === 'light' ? 'rgba(255,255,255,0.45)' : '#D1D5DB';
         break;
       case 'filled':
-        baseStyle.backgroundColor = '#F3F4F6';
+        baseStyle.backgroundColor = contrast === 'light' ? 'rgba(255,255,255,0.12)' : '#F3F4F6';
         baseStyle.borderWidth = 0;
         break;
     }
@@ -115,9 +123,10 @@ export const Input: React.FC<InputProps> = ({
 
   const getInputTextStyle = (): TextStyle => {
     const baseStyle: TextStyle = {
-      color: Colors.textPrimary,
+      color: contrast === 'light' ? Colors.white : Colors.textPrimary,
       fontWeight: '400',
       letterSpacing: 0.2,
+      flex: 1,
     };
 
     switch (size) {
@@ -155,17 +164,17 @@ export const Input: React.FC<InputProps> = ({
       )}
 
       {/* Input */}
-      <AnimatedView
-        style={[getInputContainerStyle(), animatedStyle]}
-      >
+      <AnimatedView style={[getInputContainerStyle(), animatedStyle]}>
+        {leftIcon && <View style={{ marginRight: 12 }}>{leftIcon}</View>}
         <TextInput
           style={[getInputTextStyle(), { textAlignVertical: 'center' }]}
-          placeholderTextColor="#9CA3AF" // More precise gray color
+          placeholderTextColor={contrast === 'light' ? 'rgba(255,255,255,0.65)' : '#9CA3AF'}
           onFocus={handleFocus}
           onBlur={handleBlur}
           allowFontScaling={false}
           {...props}
         />
+        {rightIcon && <View style={{ marginLeft: 12 }}>{rightIcon}</View>}
       </AnimatedView>
 
       {/* Error or Hint */}

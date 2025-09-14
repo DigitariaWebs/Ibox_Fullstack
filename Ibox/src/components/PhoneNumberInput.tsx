@@ -15,6 +15,7 @@ interface PhoneNumberInputProps {
   placeholder?: string;
   error?: string;
   style?: any;
+  contrast?: 'light' | 'dark';
 }
 
 const PhoneNumberInput: React.FC<PhoneNumberInputProps> = ({
@@ -23,6 +24,7 @@ const PhoneNumberInput: React.FC<PhoneNumberInputProps> = ({
   placeholder = 'Enter phone number',
   error,
   style,
+  contrast = 'dark',
 }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [displayValue, setDisplayValue] = useState('');
@@ -64,23 +66,28 @@ const PhoneNumberInput: React.FC<PhoneNumberInputProps> = ({
   return (
     <View style={[styles.container, style]}>
       <TouchableOpacity 
-        style={[styles.inputContainer, error && styles.errorContainer]}
+        style={[
+          styles.inputContainer,
+          contrast === 'light' && styles.lightContainer,
+          error && styles.errorContainer,
+        ]}
         onPress={() => setModalVisible(true)}
         activeOpacity={0.7}
       >
         {/* Phone Icon */}
-        <Icon name="phone" type="Feather" size={20} color={Colors.textSecondary} style={styles.phoneIcon} />
+        <Icon name="phone" type="Feather" size={20} color={contrast === 'light' ? Colors.white : Colors.textSecondary} style={styles.phoneIcon} />
         
         {/* Display Value or Placeholder */}
         <Text style={[
-          styles.inputText, 
-          !displayValue && styles.placeholderText
+          styles.inputText,
+          contrast === 'light' && styles.lightText,
+          !displayValue && (contrast === 'light' ? styles.lightPlaceholder : styles.placeholderText)
         ]}>
           {displayValue || placeholder}
         </Text>
         
         {/* Chevron Icon */}
-        <Icon name="chevron-right" type="Feather" size={20} color={Colors.textSecondary} />
+        <Icon name="chevron-right" type="Feather" size={20} color={contrast === 'light' ? Colors.white : Colors.textSecondary} />
       </TouchableOpacity>
       
       {/* Error Message */}
@@ -112,6 +119,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     minHeight: 56,
   },
+  lightContainer: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
   errorContainer: {
     borderColor: Colors.error,
     backgroundColor: Colors.error + '10',
@@ -125,10 +136,12 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: '500',
   },
+  lightText: { color: Colors.white },
   placeholderText: {
     color: Colors.textTertiary,
     fontWeight: '400',
   },
+  lightPlaceholder: { color: 'rgba(255,255,255,0.7)' },
   errorText: {
     fontSize: 12,
     color: Colors.error,

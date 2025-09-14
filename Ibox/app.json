@@ -16,7 +16,22 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app uses location to provide better delivery services"
+        "NSLocationWhenInUseUsageDescription": "This app uses location to provide better delivery services",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "192.168.1.12": {
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": true
+            },
+            "172.25.8.223": {
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": true
+            },
+            "localhost": {
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": true
+            }
+          }
+        }
       }
     },
     "android": {
