@@ -3,7 +3,10 @@
     "allow": [
       "Bash(git restore:*)",
       "WebSearch",
-      "Read(//mnt/c/Users/tassili/Downloads/**)"
+      "Read(//mnt/c/Users/tassili/Downloads/**)",
+      "Read(//mnt/c/Users/tassili/Pictures/Screenshots/**)",
+      "Bash(npm run tsc:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

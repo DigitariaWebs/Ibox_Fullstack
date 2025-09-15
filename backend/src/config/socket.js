@@ -1,12 +1,9 @@
 import { Server } from 'socket.io';
-import { createAdapter } from '@socket.io/redis-adapter';
-import redisConfig from './redis.js';
 import authService from '../services/authService.js';
 
 class SocketManager {
   constructor() {
     this.io = null;
-    this.redisAdapter = null;
   }
 
   // Initialize Socket.io server
@@ -33,7 +30,7 @@ class SocketManager {
       });
 
       // Setup Redis adapter for scalability
-      await this.setupRedisAdapter();
+      // Socket.io is ready for single instance mode
 
       // Setup authentication middleware
       this.setupAuthentication();
@@ -49,27 +46,6 @@ class SocketManager {
     }
   }
 
-  // Setup Redis adapter for horizontal scaling
-  async setupRedisAdapter() {
-    try {
-      // Use the existing pub/sub clients from redisConfig
-      const pubClient = redisConfig.pubClient;
-      const subClient = redisConfig.subClient;
-
-      if (!pubClient || !subClient) {
-        throw new Error('Redis pub/sub clients not initialized');
-      }
-
-      this.redisAdapter = createAdapter(pubClient, subClient);
-      this.io.adapter(this.redisAdapter);
-
-      console.log('✅ Socket.io Redis adapter configured');
-    } catch (error) {
-      console.error('❌ Failed to setup Redis adapter:', error);
-      // Continue without Redis adapter (single instance mode)
-      console.log('⚠️ Continuing without Redis adapter (single instance mode)');
-    }
-  }
 
   // Authentication middleware for Socket.io
   setupAuthentication() {

@@ -7,20 +7,27 @@ import {
   StatusBar,
   Dimensions,
   Image,
+  Platform,
 } from 'react-native';
 import Animated, {
   SlideInUp,
   FadeIn,
+  FadeInDown,
+  FadeInUp,
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
   withDelay,
   withSequence,
+  interpolate,
+  Extrapolation,
 } from 'react-native-reanimated';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../config/colors';
+import { Fonts } from '../../config/fonts';
 import { Text, Button } from '../../ui';
+import { Icon } from '../../ui/Icon';
 
 // Safe window dimensions
 const windowDims = Dimensions.get('window');
@@ -193,15 +200,15 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         <View style={styles.analysisContent}>
           <Animated.View entering={FadeIn.delay(200)}>
             <View style={styles.aiIcon}>
-              <MaterialIcons name="auto-awesome" size={48} color={Colors.primary} />
+              <Icon name="cpu" type="Feather" size={48} color={Colors.primary} />
             </View>
           </Animated.View>
           
-          <Animated.Text 
+          <Animated.Text
             style={styles.analysisTitle}
             entering={SlideInUp.delay(400)}
           >
-            AI Package Analysis
+            AI Package <Text style={styles.analysisTitleSpecial}>Analysis</Text>
           </Animated.Text>
           
           <Animated.Text 
@@ -242,37 +249,41 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Header */}
+      {/* Modern Header without back button */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => {
-            console.log('⚡ ExpressOrderSummary: Back button pressed');
-            navigation.goBack();
-          }}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
+        <LinearGradient
+          colors={['#FFFFFF', '#F8F9FA']}
+          style={styles.headerGradient}
+        />
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Express Summary</Text>
-          <Text style={styles.headerSubtitle}>Review your delivery details</Text>
+          <Text style={styles.headerTitle}>
+            Express <Text style={styles.headerTitleSpecial}>Summary</Text>
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            Review and confirm your delivery
+          </Text>
         </View>
-        <View style={styles.placeholder} />
+        <TouchableOpacity 
+          style={styles.closeButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Icon name="x" type="Feather" size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* AI Analysis Results */}
         <Animated.View style={styles.section} entering={SlideInUp.delay(100)}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="analytics" size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>AI Analysis Results</Text>
+            <Icon name="cpu" type="Feather" size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>AI Analysis <Text style={styles.sectionTitleSpecial}>Results</Text></Text>
           </View>
           <View style={styles.analysisCard}>
             <View style={styles.analysisHeader}>
-              <View style={styles.aiIcon}>
-                <MaterialIcons name="auto-awesome" size={24} color={Colors.primary} />
+              <View style={styles.aiIconSmall}>
+                <Icon name="cpu" type="Feather" size={20} color={Colors.primary} />
               </View>
               <View style={styles.analysisInfo}>
                 <Text style={styles.analysisResultTitle}>Package Detected</Text>
@@ -281,7 +292,7 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
                 </Text>
               </View>
               <View style={styles.confidenceBadge}>
-                <MaterialIcons name="check-circle" size={20} color={Colors.success} />
+                <Icon name="check-circle" type="Feather" size={18} color={Colors.success} />
               </View>
             </View>
             
@@ -309,12 +320,12 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         {/* Service Details */}
         <Animated.View style={styles.section} entering={SlideInUp.delay(200)}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="flash-on" size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Express Details</Text>
+            <Icon name="zap" type="Feather" size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Express <Text style={styles.sectionTitleSpecial}>Details</Text></Text>
           </View>
           <View style={styles.serviceCard}>
             <View style={styles.serviceIcon}>
-              <MaterialIcons name="flash-on" size={24} color={Colors.primary} />
+              <Icon name="zap" type="Feather" size={24} color={Colors.primary} />
             </View>
             <View style={styles.serviceInfo}>
               <Text style={styles.serviceTitle}>Express Delivery</Text>
@@ -327,13 +338,13 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         {/* Route Information */}
         <Animated.View style={styles.section} entering={SlideInUp.delay(300)}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="route" size={20} color={Colors.primary} />
+            <Icon name="map-pin" type="Feather" size={20} color={Colors.primary} />
             <Text style={styles.sectionTitle}>Route</Text>
           </View>
           <View style={styles.routeCard}>
             <View style={styles.routeItem}>
               <View style={styles.routeIconContainer}>
-                <MaterialIcons name="my-location" size={16} color={Colors.primary} />
+                <Icon name="map-pin" type="Feather" size={14} color={Colors.primary} />
               </View>
               <View style={styles.routeInfo}>
                 <Text style={styles.routeLabel}>Pickup Location</Text>
@@ -345,7 +356,7 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
             
             <View style={styles.routeItem}>
               <View style={styles.routeIconContainer}>
-                <MaterialIcons name="location-on" size={16} color={Colors.error} />
+                <Icon name="map-pin" type="Feather" size={14} color={Colors.error} />
               </View>
               <View style={styles.routeInfo}>
                 <Text style={styles.routeLabel}>Delivery Address</Text>
@@ -359,14 +370,14 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         {specialInstructions.length > 0 && (
           <Animated.View style={styles.section} entering={SlideInUp.delay(400)}>
             <View style={styles.sectionHeader}>
-              <MaterialIcons name="assignment" size={20} color={Colors.primary} />
-              <Text style={styles.sectionTitle}>Special Instructions</Text>
+              <Icon name="list" type="Feather" size={20} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>Special <Text style={styles.sectionTitleSpecial}>Instructions</Text></Text>
             </View>
             <View style={styles.instructionsCard}>
               <View style={styles.instructionsList}>
                 {specialInstructions.map((instruction, index) => (
                   <View key={index} style={styles.instructionItem}>
-                    <MaterialIcons name="check-circle" size={16} color={Colors.primary} />
+                    <Icon name="check-circle" type="Feather" size={14} color={Colors.primary} />
                     <Text style={styles.instructionText}>{instruction}</Text>
                   </View>
                 ))}
@@ -384,8 +395,8 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         {/* Price Breakdown */}
         <Animated.View style={styles.section} entering={SlideInUp.delay(500)}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="receipt" size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Price Breakdown</Text>
+            <Icon name="credit-card" type="Feather" size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Price <Text style={styles.sectionTitleSpecial}>Breakdown</Text></Text>
           </View>
           <View style={styles.priceCard}>
             <View style={styles.priceRow}>
@@ -422,7 +433,7 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         <Animated.View style={styles.section} entering={SlideInUp.delay(600)}>
           <View style={styles.timeCard}>
             <View style={styles.timeIconContainer}>
-              <MaterialIcons name="schedule" size={24} color={Colors.primary} />
+              <Icon name="clock" type="Feather" size={22} color={Colors.primary} />
             </View>
             <View style={styles.timeInfo}>
               <Text style={styles.timeLabel}>Estimated Delivery Time</Text>
@@ -436,30 +447,54 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         </Animated.View>
       </ScrollView>
 
-      {/* Bottom Action */}
+      {/* Modern Bottom Actions */}
       <View style={styles.bottomSection}>
-        <Animated.View style={buttonAnimatedStyle}>
+        <View style={styles.bottomShadow} />
+        <View style={styles.totalContainer}>
+          <Text style={styles.totalLabel}>Total Amount</Text>
+          <Text style={styles.totalAmount}>${price.total.toFixed(2)}</Text>
+        </View>
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={[styles.startButton, isProcessing && styles.startButtonProcessing]}
-            onPress={handleStartRequest}
-            disabled={isProcessing}
+            style={styles.cancelButton}
+            onPress={() => {
+              console.log('⚡ ExpressOrderSummary: Cancel button pressed');
+              navigation.navigate('HomeScreen');
+            }}
           >
-            {isProcessing ? (
-              <View style={styles.processingContainer}>
-                <Animated.View 
-                  style={styles.processingDot}
-                  entering={FadeIn}
-                />
-                <Text style={styles.startButtonText}>Finding Courier...</Text>
-              </View>
-            ) : (
-              <>
-                <Text style={styles.startButtonText}>Find Courier</Text>
-                <MaterialIcons name="arrow-forward" size={20} color="white" />
-              </>
-            )}
+            <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
-        </Animated.View>
+          <Animated.View style={[styles.payButtonWrapper, buttonAnimatedStyle]}>
+            <TouchableOpacity
+              style={[styles.payButton, isProcessing && styles.payButtonProcessing]}
+              onPress={handleStartRequest}
+              disabled={isProcessing}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={isProcessing ? ['#999', '#777'] : [Colors.primary, '#00A896']}
+                style={styles.payButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {isProcessing ? (
+                  <View style={styles.processingContainer}>
+                    <Animated.View 
+                      style={styles.processingDot}
+                      entering={FadeIn}
+                    />
+                    <Text style={styles.payButtonText}>Processing...</Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.payButtonText}>Pay & Find Courier</Text>
+                    <Icon name="arrow-right" type="Feather" size={18} color="white" />
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </View>
     </View>
   );
@@ -469,7 +504,7 @@ const styles = StyleSheet.create({
   // Analysis Screen Styles
   analysisContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#F8F9FA',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -482,17 +517,37 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.primary + '20',
+    backgroundColor: Colors.primary + '12',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 32,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  aiIconSmall: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary + '10',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   analysisTitle: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '600',
     color: Colors.textPrimary,
     textAlign: 'center',
     marginBottom: 12,
+    letterSpacing: -0.5,
+  },
+  analysisTitleSpecial: {
+    fontFamily: Fonts.PlayfairDisplay?.Variable || 'System',
+    fontWeight: '400',
+    fontStyle: 'italic',
+    color: Colors.primary,
   },
   analysisSubtitle: {
     fontSize: 16,
@@ -562,51 +617,67 @@ const styles = StyleSheet.create({
   // Main Screen Styles
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#F8F9FA',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 60,
-    paddingBottom: 20,
+    position: 'relative',
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 24,
     paddingHorizontal: 20,
-    backgroundColor: Colors.background,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   headerContent: {
-    flex: 1,
     alignItems: 'center',
-    paddingHorizontal: 16,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '600',
     color: Colors.textPrimary,
-    marginBottom: 2,
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  headerTitleSpecial: {
+    fontFamily: Fonts.PlayfairDisplay?.Variable || 'System',
+    fontWeight: '400',
+    fontStyle: 'italic',
+    color: Colors.primary,
   },
   headerSubtitle: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay?.Regular || 'System',
   },
-  placeholder: {
-    width: 44,
+  closeButton: {
+    position: 'absolute',
+    right: 20,
+    top: Platform.OS === 'ios' ? 60 : 40,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F0F0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 20,
   },
   section: {
     marginBottom: 24,
@@ -621,15 +692,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  sectionTitleSpecial: {
+    fontFamily: Fonts.PlayfairDisplay?.Variable || 'System',
+    fontWeight: '400',
+    fontStyle: 'italic',
+    color: Colors.primary,
   },
   analysisCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
+    backgroundColor: 'white',
+    borderRadius: 20,
     padding: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     elevation: 4,
   },
   analysisHeader: {
@@ -677,23 +755,23 @@ const styles = StyleSheet.create({
   serviceCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.white,
+    backgroundColor: 'white',
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     elevation: 4,
   },
   serviceIcon: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: Colors.primary + '20',
+    backgroundColor: Colors.primary + '12',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 20,
   },
   serviceInfo: {
     flex: 1,
@@ -715,13 +793,13 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   routeCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: 'white',
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     elevation: 4,
   },
   routeItem: {
@@ -732,7 +810,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.primary + '08',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -760,13 +838,13 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   instructionsCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     elevation: 4,
   },
   instructionsList: {
@@ -799,13 +877,13 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   priceCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: 'white',
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     elevation: 4,
   },
   priceRow: {
@@ -841,15 +919,15 @@ const styles = StyleSheet.create({
   timeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.primary + '10',
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: Colors.primary + '08',
+    padding: 20,
+    borderRadius: 20,
   },
   timeIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary + '15',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary + '12',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -868,30 +946,92 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   bottomSection: {
-    padding: 20,
-    paddingBottom: 40,
+    backgroundColor: 'white',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  startButton: {
-    backgroundColor: Colors.primary,
+  bottomShadow: {
+    position: 'absolute',
+    top: -20,
+    left: 0,
+    right: 0,
+    height: 20,
+    backgroundColor: 'transparent',
+  },
+  totalContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  totalLabel: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay?.Regular || 'System',
+  },
+  totalAmount: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: -0.5,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 0.35,
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay?.Medium || 'System',
+  },
+  payButtonWrapper: {
+    flex: 0.65,
+  },
+  payButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  payButtonProcessing: {
+    shadowOpacity: 0,
+  },
+  payButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-    borderRadius: 25,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
   },
-  startButtonProcessing: {
-    backgroundColor: Colors.textSecondary,
-  },
-  startButtonText: {
+  payButtonText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     marginRight: 8,
+    fontFamily: Fonts.SFProDisplay?.Semibold || 'System',
+    letterSpacing: -0.3,
   },
   processingContainer: {
     flexDirection: 'row',

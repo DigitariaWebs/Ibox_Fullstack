@@ -1,22 +1,39 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
-  StyleSheet,
+  Text,
   TouchableOpacity,
-  StatusBar,
-  Alert,
-  TextInput,
+  ScrollView,
   Dimensions,
-  SafeAreaView,
-  Animated,
+  StatusBar,
+  Platform,
+  KeyboardAvoidingView,
+  TextInput,
+  StyleSheet,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withDelay,
+  interpolate,
+  Extrapolation,
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '../../config/colors';
-import { Text, Button } from '../../ui';
+import { Fonts } from '../../config/fonts';
+import { Icon } from '../../ui/Icon';
 
-// Safe window dimensions
-const windowDims = Dimensions.get('window');
-const SCREEN_WIDTH = windowDims?.width || 375;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
 
 interface ExpressFlowProps {
   navigation: any;
@@ -28,279 +45,500 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
   const [selectedUrgency, setSelectedUrgency] = useState<string>('');
   const [selectedInstructions, setSelectedInstructions] = useState<string[]>([]);
   const [specialNotes, setSpecialNotes] = useState<string>('');
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Animation values
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
+  const progressValue = useSharedValue(0);
+  const stepTransition = useSharedValue(1);
+  const buttonScale = useSharedValue(1);
+  
+  const totalSteps = 3;
 
-  const animateStepTransition = () => {
-    Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 50,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const steps = [
-    { number: 1, title: 'Urgence', active: currentStep === 1 },
-    { number: 2, title: 'Instructions', active: currentStep === 2 },
-  ];
+  useEffect(() => {
+    // Initial animations
+    progressValue.value = withSpring((currentStep / totalSteps) * 100, {
+      damping: 15,
+      stiffness: 100,
+    });
+    stepTransition.value = withTiming(1, { duration: 400 });
+  }, [currentStep]);
 
   const urgencyOptions = [
     {
-      id: '1h',
-      title: 'Express 1h',
-      subtitle: 'Livraison en moins d\'1h',
-      price: '+$25',
-      icon: 'bolt',
-      duration: '30-60min',
-    },
-    {
-      id: '2h',
-      title: 'Express 2h',
-      subtitle: 'Livraison ultra-rapide',
-      price: '+$15',
-      icon: 'flash-on',
-      duration: '1-2h',
-    },
-    {
-      id: 'same-day',
-      title: 'Même jour',
-      subtitle: 'Livraison dans les 4 heures',
-      price: 'Pas de frais supplémentaires',
-      icon: 'schedule',
-      duration: '2-4h',
+      id: 'express_1h',
+      title: 'Lightning Fast',
+      subtitle: 'Within 1 hour',
+      price: '$25',
+      icon: 'flash',
+      color: '#FF6B6B',
+      gradient: ['#FF6B6B', '#FF8E53'],
       popular: true,
+    },
+    {
+      id: 'express_2h',
+      title: 'Express',
+      subtitle: 'Within 2 hours',
+      price: '$18',
+      icon: 'rocket-outline',
+      color: '#4ECDC4',
+      gradient: ['#4ECDC4', '#44A3BC'],
+    },
+    {
+      id: 'same_day',
+      title: 'Same Day',
+      subtitle: 'Today by 8 PM',
+      price: '$12',
+      icon: 'today-outline',
+      color: '#95E1D3',
+      gradient: ['#95E1D3', '#78C7BB'],
     },
   ];
 
   const instructionOptions = [
-    { id: 'fragile', title: 'Fragile', icon: 'warning' },
-    { id: 'signature', title: 'Signature requise', icon: 'edit' },
-    { id: 'photo', title: 'Photo confirmation', icon: 'camera-alt' },
-    { id: 'call', title: 'Appeler avant', icon: 'phone' },
-    { id: 'cold', title: 'Réfrigéré', icon: 'ac-unit' },
-    { id: 'priority', title: 'Priorité', icon: 'priority-high' },
+    { id: 'fragile', icon: 'cube-outline', label: 'Fragile Item', color: '#FF6B6B' },
+    { id: 'signature', icon: 'create-outline', label: 'Signature Required', color: '#4ECDC4' },
+    { id: 'photo', icon: 'camera-outline', label: 'Photo Confirmation', color: '#FECA57' },
+    { id: 'insured', icon: 'shield-checkmark-outline', label: 'Insurance', color: '#A29BFE' },
+    { id: 'doorstep', icon: 'home-outline', label: 'Leave at Door', color: '#45B7D1' },
+    { id: 'call', icon: 'call-outline', label: 'Call on Arrival', color: '#96CEB4' },
   ];
-
-  const handleUrgencySelect = (urgencyId: string) => {
-    setSelectedUrgency(urgencyId);
-    setTimeout(() => {
-      setCurrentStep(2);
-      animateStepTransition();
-    }, 300);
-  };
-
-  const toggleInstruction = (instructionId: string) => {
-    setSelectedInstructions(prev => 
-      prev.includes(instructionId)
-        ? prev.filter(id => id !== instructionId)
-        : [...prev, instructionId]
-    );
-  };
-
-  const handleTakePhoto = () => {
-    if (!selectedUrgency) {
-      Alert.alert('Sélection requise', 'Veuillez sélectionner l\'urgence de livraison.');
-      return;
-    }
-
-    const selectedUrgencyData = urgencyOptions.find(opt => opt.id === selectedUrgency);
-    
-    navigation.navigate('PackagePhoto', {
-      ...route.params,
-      urgency: selectedUrgencyData,
-      specialInstructions: selectedInstructions,
-      specialNotes,
-      serviceType: 'express',
-      nextScreen: 'ExpressOrderSummary',
-    });
-  };
 
   const handleBack = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-      animateStepTransition();
+      setIsTransitioning(true);
+      stepTransition.value = withTiming(0, { duration: 200 }, () => {
+        'worklet';
+        stepTransition.value = withTiming(1, { duration: 200 });
+      });
+      setTimeout(() => {
+        setCurrentStep(currentStep - 1);
+        setIsTransitioning(false);
+      }, 200);
     } else {
       navigation.goBack();
     }
   };
 
-  const ProgressIndicator = () => (
-    <View style={styles.progressContainer}>
-      {steps.map((step, index) => (
-        <View key={step.number} style={styles.progressStep}>
-          <View style={[
-            styles.progressDot,
-            step.active && styles.progressDotActive,
-            currentStep > step.number && styles.progressDotCompleted,
-          ]}>
-            {currentStep > step.number ? (
-              <MaterialIcons name="check" size={12} color={Colors.white} />
-            ) : (
-              <Text style={[
-                styles.progressNumber,
-                step.active && styles.progressNumberActive,
-              ]}>{step.number}</Text>
+  const handleNext = () => {
+    if (currentStep < totalSteps) {
+      setIsTransitioning(true);
+      stepTransition.value = withTiming(0, { duration: 200 }, () => {
+        'worklet';
+        stepTransition.value = withTiming(1, { duration: 200 });
+      });
+      setTimeout(() => {
+        setCurrentStep(currentStep + 1);
+        setIsTransitioning(false);
+      }, 200);
+    } else {
+      // Navigate to photo screen
+      navigation.navigate('PackagePhoto', {
+        ...route.params,
+        urgency: selectedUrgency,
+        specialInstructions: selectedInstructions,
+        specialNotes,
+      });
+    }
+  };
+
+  const toggleInstruction = (id: string) => {
+    setSelectedInstructions(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progressValue.value}%`,
+  }));
+
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: stepTransition.value,
+    transform: [{
+      translateY: interpolate(
+        stepTransition.value,
+        [0, 1],
+        [20, 0],
+        Extrapolation.CLAMP
+      )
+    }]
+  }));
+
+  const renderStepIndicator = () => (
+    <View style={styles.stepIndicatorContainer}>
+      <View style={styles.stepsRow}>
+        {[1, 2, 3].map((step) => (
+          <View key={step} style={styles.stepWrapper}>
+            <View style={[
+              styles.stepCircle,
+              currentStep >= step && styles.stepCircleActive,
+              currentStep === step && styles.stepCircleCurrent
+            ]}>
+              {currentStep > step ? (
+                <Icon name="check" type="Feather" size={16} color="white" />
+              ) : (
+                <Text style={[
+                  styles.stepNumber,
+                  currentStep >= step && styles.stepNumberActive
+                ]}>
+                  {step}
+                </Text>
+              )}
+            </View>
+            {step < 3 && (
+              <View style={[
+                styles.stepLine,
+                currentStep > step && styles.stepLineActive
+              ]} />
             )}
           </View>
-          {index < steps.length - 1 && (
-            <View style={[
-              styles.progressLine,
-              currentStep > step.number && styles.progressLineCompleted,
-            ]} />
-          )}
-        </View>
-      ))}
+        ))}
+      </View>
+      <View style={styles.stepLabels}>
+        <Text style={[styles.stepLabel, currentStep >= 1 && styles.stepLabelActive]}>
+          Speed
+        </Text>
+        <Text style={[styles.stepLabel, currentStep >= 2 && styles.stepLabelActive]}>
+          Instructions
+        </Text>
+        <Text style={[styles.stepLabel, currentStep >= 3 && styles.stepLabelActive]}>
+          Notes
+        </Text>
+      </View>
     </View>
   );
 
-  const UrgencyStep = () => (
-    <View style={styles.stepContainer}>
+  const renderUrgencyStep = () => {
+    console.log('🔍 Rendering urgency step with options:', urgencyOptions.length);
+    return (
+    <Animated.View style={[contentStyle, { flex: 1 }]}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Quelle est l'urgence ?</Text>
-        <Text style={styles.stepSubtitle}>Sélectionnez le délai qui vous convient</Text>
+        <Text style={styles.stepTitle}>
+          How <Text style={styles.stepTitleHighlight}>fast</Text> do you need it?
+        </Text>
+        <Text style={styles.stepSubtitle}>
+          Choose your delivery speed
+        </Text>
       </View>
-      
-      <View style={styles.stepContent}>
-        <View style={styles.optionsGrid}>
-          {urgencyOptions.map((option) => (
+
+      <ScrollView 
+        style={styles.optionsScroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.urgencyContainer}
+      >
+        {urgencyOptions && urgencyOptions.length > 0 ? (
+          urgencyOptions.map((option, index) => (
+          <Animated.View
+            key={option.id}
+            entering={FadeInDown.delay(index * 100).springify()}
+          >
             <TouchableOpacity
-              key={option.id}
               style={[
-                styles.optionCard,
-                selectedUrgency === option.id && styles.optionCardSelected,
-                option.popular && styles.optionCardPopular,
+                styles.urgencyCard,
+                selectedUrgency === option.id && styles.urgencyCardSelected
               ]}
-              onPress={() => handleUrgencySelect(option.id)}
-              activeOpacity={0.7}
+              onPress={() => setSelectedUrgency(option.id)}
+              activeOpacity={0.8}
             >
               {option.popular && (
                 <View style={styles.popularBadge}>
-                  <Text style={styles.popularText}>POPULAIRE</Text>
+                  <Text style={styles.popularText}>POPULAR</Text>
                 </View>
               )}
               
-              <View style={styles.optionIcon}>
-                <MaterialIcons name={option.icon} size={28} color={Colors.primary} />
-              </View>
-              
-              <Text style={styles.optionName}>{option.title}</Text>
-              <Text style={styles.optionDuration}>{option.duration}</Text>
-              <Text style={styles.optionSubtitle}>{option.subtitle}</Text>
-              
-              <View style={styles.optionPriceContainer}>
-                <Text style={styles.optionPrice}>{option.price}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
+              <LinearGradient
+                colors={option.gradient as [string, string, ...string[]]}
+                style={styles.urgencyGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name={option.icon as any} size={28} color="white" />
+              </LinearGradient>
 
-  const InstructionsStep = () => (
-    <View style={styles.stepContainer}>
-      <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Instructions spéciales</Text>
-        <Text style={styles.stepSubtitle}>Sélectionnez les options qui vous conviennent</Text>
-      </View>
-      
-      <View style={styles.stepContent}>
-        <View style={styles.chipsContainer}>
-          {instructionOptions.map((chip) => (
-            <TouchableOpacity
-              key={chip.id}
-              style={[
-                styles.chip,
-                selectedInstructions.includes(chip.id) && styles.chipSelected,
-              ]}
-              onPress={() => toggleInstruction(chip.id)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons 
-                name={chip.icon} 
-                size={16} 
-                color={selectedInstructions.includes(chip.id) ? Colors.white : Colors.primary} 
-              />
-              <Text style={[
-                styles.chipText,
-                selectedInstructions.includes(chip.id) && styles.chipTextSelected,
-              ]}>{chip.title}</Text>
+              <View style={styles.urgencyContent}>
+                <Text style={styles.urgencyTitle}>{option.title}</Text>
+                <Text style={styles.urgencySubtitle}>{option.subtitle}</Text>
+              </View>
+
+              <View style={styles.urgencyPriceContainer}>
+                <Text style={styles.urgencyPrice}>{option.price}</Text>
+                <View style={[
+                  styles.urgencyCheckbox,
+                  selectedUrgency === option.id && styles.urgencyCheckboxSelected
+                ]}>
+                  {selectedUrgency === option.id && (
+                    <Icon name="check" type="Feather" size={16} color="white" />
+                  )}
+                </View>
+              </View>
             </TouchableOpacity>
+          </Animated.View>
+        ))
+        ) : (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ color: '#666', fontFamily: Fonts.SFProDisplay.Regular }}>
+              Loading options...
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+    </Animated.View>
+    );
+  };
+
+  const renderInstructionsStep = () => {
+    console.log('🎯 Rendering instructions step with options:', instructionOptions.length);
+    return (
+    <Animated.View style={[contentStyle, { flex: 1 }]}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>
+          Special <Text style={styles.stepTitleHighlight}>instructions</Text>?
+        </Text>
+        <Text style={styles.stepSubtitle}>
+          Select all that apply
+        </Text>
+      </View>
+
+      <View style={styles.instructionsContainer}>
+        <View style={styles.instructionsGrid}>
+          {instructionOptions.slice(0, 4).map((option, index) => (
+            <Animated.View
+              key={option.id}
+              entering={FadeInUp.delay(index * 50).springify()}
+              style={styles.instructionItemWrapper}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.instructionItem,
+                  selectedInstructions.includes(option.id) && styles.instructionItemSelected
+                ]}
+                onPress={() => toggleInstruction(option.id)}
+                activeOpacity={0.8}
+              >
+                <View style={[
+                  styles.instructionIcon,
+                  { backgroundColor: `${option.color}20` },
+                  selectedInstructions.includes(option.id) && { backgroundColor: option.color }
+                ]}>
+                  <Ionicons 
+                    name={option.icon as any} 
+                    size={18} 
+                    color={selectedInstructions.includes(option.id) ? 'white' : option.color} 
+                  />
+                </View>
+                <Text style={[
+                  styles.instructionLabel,
+                  selectedInstructions.includes(option.id) && styles.instructionLabelSelected
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           ))}
         </View>
         
-        <TextInput
-          style={styles.textInput}
-          placeholder="Ajoutez des instructions particulières..."
-          placeholderTextColor={Colors.textTertiary}
-          value={specialNotes}
-          onChangeText={setSpecialNotes}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-          maxLength={200}
-        />
+        {/* Fifth item centered below */}
+        {instructionOptions[4] && (
+          <Animated.View
+            entering={FadeInUp.delay(200).springify()}
+            style={styles.instructionCenterWrapper}
+          >
+            <TouchableOpacity
+              style={[
+                styles.instructionItem,
+                styles.instructionItemCenter,
+                selectedInstructions.includes(instructionOptions[4].id) && styles.instructionItemSelected
+              ]}
+              onPress={() => toggleInstruction(instructionOptions[4].id)}
+              activeOpacity={0.8}
+            >
+              <View style={[
+                styles.instructionIcon,
+                { backgroundColor: `${instructionOptions[4].color}20` },
+                selectedInstructions.includes(instructionOptions[4].id) && { backgroundColor: instructionOptions[4].color }
+              ]}>
+                <Ionicons 
+                  name={instructionOptions[4].icon as any} 
+                  size={18} 
+                  color={selectedInstructions.includes(instructionOptions[4].id) ? 'white' : instructionOptions[4].color} 
+                />
+              </View>
+              <Text style={[
+                styles.instructionLabel,
+                selectedInstructions.includes(instructionOptions[4].id) && styles.instructionLabelSelected
+              ]}>
+                {instructionOptions[4].label}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
       </View>
-      
-      <View style={styles.stepFooter}>
-        <Button
-          title="Prendre une photo du colis"
-          onPress={handleTakePhoto}
-          style={styles.continueButton}
-        />
-      </View>
-    </View>
-  );
+    </Animated.View>
+    );
+  };
 
+  const renderNotesStep = () => (
+    <Animated.View style={[contentStyle, { flex: 1 }]}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>
+          Additional <Text style={styles.stepTitleHighlight}>notes</Text>
+        </Text>
+        <Text style={styles.stepSubtitle}>
+          Any special requests for the driver?
+        </Text>
+      </View>
+
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.notesContent}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ flex: 1 }}>
+        <Animated.View
+          entering={FadeIn.delay(200).springify()}
+          style={styles.notesInputContainer}
+        >
+          <TextInput
+            style={styles.notesInput}
+            placeholder="E.g., Ring doorbell twice, package contains birthday gift..."
+            placeholderTextColor="#999"
+            multiline
+            numberOfLines={6}
+            value={specialNotes}
+            onChangeText={setSpecialNotes}
+            textAlignVertical="top"
+            returnKeyType="send"
+            returnKeyLabel="Send"
+            blurOnSubmit={true}
+            onSubmitEditing={() => {
+              Keyboard.dismiss();
+            }}
+          />
+          <Text style={styles.notesCounter}>
+            {specialNotes.length}/200
+          </Text>
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeIn.delay(300).springify()}
+          style={styles.quickNotesContainer}
+        >
+          <Text style={styles.quickNotesTitle}>Quick notes:</Text>
+          <View style={styles.quickNotesGrid}>
+            {['Handle with care', 'Call before delivery', 'Leave with neighbor'].map((note, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.quickNote}
+                onPress={() => setSpecialNotes(prev => prev + (prev ? ', ' : '') + note)}
+              >
+                <Text style={styles.quickNoteText}>{note}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </Animated.View>
+  );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Custom Header with Back Button */}
+      {/* Modern Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.textPrimary} />
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={handleBack}
+          activeOpacity={0.7}
+        >
+          <Icon name="arrow-left" type="Feather" size={24} color={Colors.textPrimary} />
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>Express Delivery</Text>
+        <View style={styles.headerTitle}>
+          <Text style={styles.headerTitleText}>
+            Express{' '}
+            <Text style={styles.headerTitleHighlight}>Delivery</Text>
+          </Text>
+        </View>
         
-        <View style={styles.stepIndicator}>
-          <Text style={styles.stepCounter}>{currentStep}/2</Text>
+        <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+          <Icon name="x" type="Feather" size={24} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Progress Bar */}
+      <View style={styles.progressContainer}>
+        <View style={styles.progressBar}>
+          <Animated.View style={[styles.progressFill, progressStyle]} />
         </View>
       </View>
 
-      {/* Progress Indicator */}
-      <ProgressIndicator />
+      {/* Step Indicator */}
+      {renderStepIndicator()}
 
-      {/* Step Content - Full Screen */}
-      <Animated.View 
-        style={[
-          styles.content,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          },
-        ]}
-      >
-        {currentStep === 1 && <UrgencyStep />}
-        {currentStep === 2 && <InstructionsStep />}
-      </Animated.View>
+      {/* Content */}
+      <View style={styles.content}>
+        {currentStep === 1 && renderUrgencyStep()}
+        {currentStep === 2 && renderInstructionsStep()}
+        {currentStep === 3 && renderNotesStep()}
+      </View>
+
+      {/* Price Summary */}
+      {selectedUrgency && (
+        <View style={styles.priceSummary}>
+          <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Delivery Speed</Text>
+            <Text style={styles.priceValue}>
+              {urgencyOptions.find(o => o.id === selectedUrgency)?.price || '$0'}
+            </Text>
+          </View>
+          {selectedInstructions.length > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Special Instructions</Text>
+              <Text style={styles.priceValue}>+${selectedInstructions.length * 2}</Text>
+            </View>
+          )}
+          <View style={[styles.priceRow, styles.totalRow]}>
+            <Text style={styles.totalLabel}>Total</Text>
+            <Text style={styles.totalValue}>
+              ${
+                (parseInt(urgencyOptions.find(o => o.id === selectedUrgency)?.price.replace('$', '') || '0') +
+                selectedInstructions.length * 2)
+              }
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Bottom Action */}
+      <View style={styles.bottomContainer}>
+        <TouchableOpacity
+          style={[
+            styles.continueButton,
+            (!selectedUrgency && currentStep === 1) && styles.continueButtonDisabled
+          ]}
+          onPress={handleNext}
+          disabled={!selectedUrgency && currentStep === 1}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={
+              (!selectedUrgency && currentStep === 1) 
+                ? ['#E0E0E0', '#D0D0D0']
+                : [Colors.primary, '#1BA8A8']
+            }
+            style={styles.continueGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <Text style={styles.continueText}>
+              {currentStep === totalSteps ? 'Continue to Photo' : 'Continue'}
+            </Text>
+            <Icon name="arrow-right" type="Feather" size={20} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -308,249 +546,423 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-    paddingTop: 50, // Account for status bar on iOS
+    backgroundColor: '#FAFAFA',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: STATUS_BAR_HEIGHT + 10,
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: Colors.background,
+    paddingBottom: 15,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F8F8F8',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
     flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
-  },
-  stepIndicator: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary + '15',
   },
-  stepCounter: {
-    fontSize: 14,
-    fontWeight: '700',
+  headerTitleText: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+  },
+  headerTitleHighlight: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
     color: Colors.primary,
   },
   progressContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'white',
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
+  },
+  stepIndicatorContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+    backgroundColor: 'white',
+  },
+  stepsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingVertical: 16,
-    backgroundColor: Colors.background,
+    marginBottom: 12,
   },
-  progressStep: {
+  stepWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  progressDot: {
+  stepCircle: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F0F0F0',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.border,
   },
-  progressDotActive: {
+  stepCircleActive: {
     backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
   },
-  progressDotCompleted: {
+  stepCircleCurrent: {
     backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  progressNumber: {
+  stepNumber: {
     fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: '#999',
   },
-  progressNumberActive: {
-    color: Colors.white,
+  stepNumberActive: {
+    color: 'white',
   },
-  progressLine: {
-    width: 40,
+  stepLine: {
+    width: 60,
     height: 2,
-    backgroundColor: Colors.border,
+    backgroundColor: '#F0F0F0',
     marginHorizontal: 8,
   },
-  progressLineCompleted: {
+  stepLineActive: {
     backgroundColor: Colors.primary,
+  },
+  stepLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  stepLabel: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#999',
+  },
+  stepLabelActive: {
+    color: Colors.textPrimary,
+    fontFamily: Fonts.SFProDisplay.Medium,
   },
   content: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  stepContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    backgroundColor: '#FAFAFA',
   },
   stepHeader: {
-    alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 5,
   },
   stepTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
     marginBottom: 6,
-    textAlign: 'center',
+  },
+  stepTitleHighlight: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
+    color: Colors.primary,
+    fontSize: 26,
   },
   stepSubtitle: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
+    fontSize: 15,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
   },
-  stepContent: {
+  optionsScroll: {
     flex: 1,
-    justifyContent: 'center',
   },
-  stepFooter: {
-    paddingTop: 20,
+  urgencyContainer: {
+    padding: 20,
+    paddingTop: 10,
+    paddingBottom: 100,
   },
-  optionsGrid: {
-    gap: 12,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  optionCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
+  urgencyCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    marginBottom: 12,
     borderWidth: 2,
-    borderColor: Colors.border,
+    borderColor: '#F0F0F0',
+    minHeight: 88,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 2,
-    position: 'relative',
-    minHeight: 140,
-    justifyContent: 'center',
   },
-  optionCardSelected: {
+  urgencyCardSelected: {
     borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '08',
-  },
-  optionCardPopular: {
-    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}08`,
   },
   popularBadge: {
     position: 'absolute',
-    top: -6,
-    right: 12,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
+    top: -8,
+    right: 16,
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    zIndex: 1,
   },
   popularText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: Colors.white,
+    fontSize: 10,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: 'white',
+    letterSpacing: 0.5,
   },
-  optionIcon: {
-    marginBottom: 12,
+  urgencyGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
   },
-  optionName: {
-    fontSize: 16,
-    fontWeight: '700',
+  urgencyContent: {
+    flex: 1,
+  },
+  urgencyTitle: {
+    fontSize: 17,
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
-    marginBottom: 3,
-    textAlign: 'center',
+    marginBottom: 4,
   },
-  optionDuration: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 3,
-    textAlign: 'center',
+  urgencySubtitle: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
   },
-  optionSubtitle: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 8,
-    lineHeight: 16,
+  urgencyPriceContainer: {
+    alignItems: 'flex-end',
   },
-  optionPriceContainer: {
-    alignItems: 'center',
-  },
-  optionPrice: {
-    fontSize: 12,
-    fontWeight: '600',
+  urgencyPrice: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Bold,
     color: Colors.primary,
-    textAlign: 'center',
+    marginBottom: 8,
   },
-  chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
-  },
-  chip: {
-    flexDirection: 'row',
+  urgencyCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    justifyContent: 'center',
   },
-  chipSelected: {
+  urgencyCheckboxSelected: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
-  chipText: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    fontWeight: '500',
+  instructionsContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    justifyContent: 'center',
   },
-  chipTextSelected: {
-    color: Colors.white,
+  instructionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  textInput: {
-    backgroundColor: Colors.white,
+  instructionItemWrapper: {
+    width: '48%',
+    marginBottom: 8,
+  },
+  instructionCenterWrapper: {
+    alignItems: 'center',
+    marginTop: 0,
+  },
+  instructionItem: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: 'white',
     borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
+    minHeight: 70,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 2,
+    justifyContent: 'center',
+  },
+  instructionItemCenter: {
+    width: 160,
+  },
+  instructionItemSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}08`,
+  },
+  instructionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  instructionLabel: {
+    fontSize: 11,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: '#333',
+    textAlign: 'center',
+    marginTop: 1,
+    lineHeight: 13,
+  },
+  instructionLabelSelected: {
     color: Colors.textPrimary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    minHeight: 80,
-    marginTop: 16,
-    textAlignVertical: 'top',
+  },
+  notesContainer: {
+    flex: 1,
+  },
+  notesContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  notesInputContainer: {
+    marginTop: 20,
+  },
+  notesInput: {
+    backgroundColor: '#F8F8F8',
+    borderRadius: 16,
+    padding: 16,
+    minHeight: 150,
+    fontSize: 15,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textPrimary,
+  },
+  notesCounter: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#999',
+    textAlign: 'right',
+    marginTop: 8,
+  },
+  quickNotesContainer: {
+    marginTop: 24,
+  },
+  quickNotesTitle: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: '#666',
+    marginBottom: 12,
+  },
+  quickNotesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+  },
+  quickNote: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 20,
+    marginHorizontal: 4,
+    marginBottom: 8,
+  },
+  quickNoteText: {
+    fontSize: 13,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
+  },
+  bottomContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
   },
   continueButton: {
-    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  continueButtonDisabled: {
+    opacity: 0.5,
+  },
+  continueGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  continueText: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
+  },
+  priceSummary: {
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  priceLabel: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
+  },
+  priceValue: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+  },
+  totalRow: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+  },
+  totalValue: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.primary,
   },
 });
 
-export default ExpressFlow; 
+export default ExpressFlow;

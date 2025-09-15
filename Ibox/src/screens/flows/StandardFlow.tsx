@@ -1,22 +1,36 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
-  StyleSheet,
+  Text,
   TouchableOpacity,
-  StatusBar,
-  Alert,
-  TextInput,
+  ScrollView,
   Dimensions,
-  SafeAreaView,
-  Animated,
+  StatusBar,
+  Platform,
+  KeyboardAvoidingView,
+  TextInput,
+  StyleSheet,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  interpolate,
+  Extrapolation,
+  FadeInDown,
+  FadeInUp,
+  FadeIn,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { Colors } from '../../config/colors';
-import { Text, Button } from '../../ui';
+import { Fonts } from '../../config/fonts';
 
-// Safe window dimensions
-const windowDims = Dimensions.get('window');
-const SCREEN_WIDTH = windowDims?.width || 375;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
 
 interface StandardFlowProps {
   navigation: any;
@@ -28,93 +42,113 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
   const [selectedTimeWindow, setSelectedTimeWindow] = useState<string>('');
   const [selectedInstructions, setSelectedInstructions] = useState<string[]>([]);
   const [specialNotes, setSpecialNotes] = useState<string>('');
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Animation values
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
+  const progressValue = useSharedValue(0);
+  const stepTransition = useSharedValue(1);
+  const buttonScale = useSharedValue(1);
+  
+  const totalSteps = 3;
 
-  const animateStepTransition = () => {
-    Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 50,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const steps = [
-    { number: 1, title: 'Créneau', active: currentStep === 1 },
-    { number: 2, title: 'Instructions', active: currentStep === 2 },
-  ];
+  useEffect(() => {
+    // Initial animations
+    progressValue.value = withSpring((currentStep / totalSteps) * 100, {
+      damping: 15,
+      stiffness: 100,
+    });
+    stepTransition.value = withTiming(1, { duration: 400 });
+  }, [currentStep]);
 
   const timeWindowOptions = [
     {
       id: 'morning',
-      title: 'Matin',
-      subtitle: 'Livraison le matin',
-      timeRange: '8h00 - 12h00',
-      icon: 'wb-sunny',
-      duration: '4h',
+      title: 'Morning',
+      subtitle: 'Same day morning',
+      timeRange: '8:00 - 12:00',
+      price: '$12',
+      icon: 'sunny',
+      color: '#FF8A65',
+      gradient: ['#FF8A65', '#FF7043'],
     },
     {
       id: 'afternoon',
-      title: 'Après-midi',
-      subtitle: 'Livraison l\'après-midi',
-      timeRange: '12h00 - 18h00',
-      icon: 'wb-cloudy',
-      duration: '6h',
+      title: 'Afternoon',
+      subtitle: 'Same day afternoon',
+      timeRange: '12:00 - 18:00',
+      price: '$15',
+      icon: 'partly-sunny',
+      color: '#42A5F5',
+      gradient: ['#42A5F5', '#2196F3'],
       popular: true,
     },
     {
       id: 'evening',
-      title: 'Soir',
-      subtitle: 'Livraison en soirée',
-      timeRange: '18h00 - 21h00',
-      icon: 'brightness-2',
-      duration: '3h',
+      title: 'Evening',
+      subtitle: 'Same day evening',
+      timeRange: '18:00 - 21:00',
+      price: '$18',
+      icon: 'moon',
+      color: '#AB47BC',
+      gradient: ['#AB47BC', '#8E24AA'],
     },
   ];
 
   const instructionOptions = [
-    { id: 'doorbell', title: 'Sonner à la porte', icon: 'notifications' },
-    { id: 'concierge', title: 'Laisser au concierge', icon: 'person' },
-    { id: 'safe_place', title: 'Lieu sûr', icon: 'security' },
-    { id: 'call_first', title: 'Appeler avant', icon: 'phone' },
-    { id: 'fragile', title: 'Fragile', icon: 'warning' },
-    { id: 'signature', title: 'Signature requise', icon: 'edit' },
+    { id: 'doorbell', icon: 'notifications-outline', label: 'Ring Doorbell', color: '#4ECDC4' },
+    { id: 'call_first', icon: 'call-outline', label: 'Call First', color: '#FECA57' },
+    { id: 'concierge', icon: 'person-outline', label: 'Leave with Concierge', color: '#45B7D1' },
+    { id: 'safe_place', icon: 'shield-checkmark-outline', label: 'Safe Place', color: '#96CEB4' },
+    { id: 'fragile', icon: 'warning-outline', label: 'Handle with Care', color: '#FF6B6B' },
   ];
+
+  const handleBack = () => {
+    if (currentStep > 1) {
+      setIsTransitioning(true);
+      stepTransition.value = withTiming(0, { duration: 200 }, () => {
+        'worklet';
+        stepTransition.value = withTiming(1, { duration: 200 });
+      });
+      setTimeout(() => {
+        setCurrentStep(currentStep - 1);
+        setIsTransitioning(false);
+      }, 200);
+    } else {
+      navigation.goBack();
+    }
+  };
+
+  const handleNext = () => {
+    if (currentStep < totalSteps) {
+      setIsTransitioning(true);
+      stepTransition.value = withTiming(0, { duration: 200 }, () => {
+        'worklet';
+        stepTransition.value = withTiming(1, { duration: 200 });
+      });
+      setTimeout(() => {
+        setCurrentStep(currentStep + 1);
+        setIsTransitioning(false);
+      }, 200);
+    } else {
+      handleTakePhoto();
+    }
+  };
 
   const handleTimeWindowSelect = (windowId: string) => {
     setSelectedTimeWindow(windowId);
     setTimeout(() => {
-      setCurrentStep(2);
-      animateStepTransition();
+      handleNext();
     }, 300);
   };
 
-  const toggleInstruction = (instructionId: string) => {
-    setSelectedInstructions(prev => 
-      prev.includes(instructionId)
-        ? prev.filter(id => id !== instructionId)
-        : [...prev, instructionId]
+  const toggleInstruction = (id: string) => {
+    setSelectedInstructions(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
 
   const handleTakePhoto = () => {
     if (!selectedTimeWindow) {
-      Alert.alert('Sélection requise', 'Veuillez sélectionner un créneau de livraison.');
       return;
     }
 
@@ -126,180 +160,391 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
       specialInstructions: selectedInstructions,
       specialNotes,
       serviceType: 'standard',
-      nextScreen: 'Measuring',
+      nextScreen: 'StandardOrderSummary',
     });
   };
 
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-      animateStepTransition();
-    } else {
-      navigation.goBack();
-    }
-  };
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progressValue.value}%`,
+  }));
 
-  const ProgressIndicator = () => (
-    <View style={styles.progressContainer}>
-      {steps.map((step, index) => (
-        <View key={step.number} style={styles.progressStep}>
-          <View style={[
-            styles.progressDot,
-            step.active && styles.progressDotActive,
-            currentStep > step.number && styles.progressDotCompleted,
-          ]}>
-            {currentStep > step.number ? (
-              <MaterialIcons name="check" size={12} color={Colors.white} />
-            ) : (
-              <Text style={[
-                styles.progressNumber,
-                step.active && styles.progressNumberActive,
-              ]}>{step.number}</Text>
-            )}
-          </View>
-          {index < steps.length - 1 && (
-            <View style={[
-              styles.progressLine,
-              currentStep > step.number && styles.progressLineCompleted,
-            ]} />
-          )}
-        </View>
-      ))}
-    </View>
-  );
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: stepTransition.value,
+    transform: [{
+      translateY: interpolate(
+        stepTransition.value,
+        [0, 1],
+        [20, 0],
+        Extrapolation.CLAMP
+      )
+    }]
+  }));
 
-  const TimeWindowStep = () => (
-    <View style={styles.stepContainer}>
-      <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Quel créneau préférez-vous ?</Text>
-        <Text style={styles.stepSubtitle}>Sélectionnez votre créneau de livraison</Text>
-      </View>
-      
-      <View style={styles.stepContent}>
-        <View style={styles.optionsGrid}>
-          {timeWindowOptions.map((option) => (
-            <TouchableOpacity
-              key={option.id}
-              style={[
-                styles.optionCard,
-                selectedTimeWindow === option.id && styles.optionCardSelected,
-                option.popular && styles.optionCardPopular,
-              ]}
-              onPress={() => handleTimeWindowSelect(option.id)}
-              activeOpacity={0.7}
-            >
-              {option.popular && (
-                <View style={styles.popularBadge}>
-                  <Text style={styles.popularText}>POPULAIRE</Text>
-                </View>
-              )}
-              
-              <View style={styles.optionIcon}>
-                <MaterialIcons name={option.icon} size={28} color={Colors.primary} />
-              </View>
-              
-              <Text style={styles.optionName}>{option.title}</Text>
-              <Text style={styles.optionDuration}>{option.duration}</Text>
-              <Text style={styles.optionSubtitle}>{option.subtitle}</Text>
-              
-              <View style={styles.optionPriceContainer}>
-                <Text style={styles.optionPrice}>{option.timeRange}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
-
-  const InstructionsStep = () => (
-    <View style={styles.stepContainer}>
-      <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Instructions de livraison</Text>
-        <Text style={styles.stepSubtitle}>Sélectionnez les options qui vous conviennent</Text>
-      </View>
-      
-      <View style={styles.stepContent}>
-        <View style={styles.chipsContainer}>
-          {instructionOptions.map((chip) => (
-            <TouchableOpacity
-              key={chip.id}
-              style={[
-                styles.chip,
-                selectedInstructions.includes(chip.id) && styles.chipSelected,
-              ]}
-              onPress={() => toggleInstruction(chip.id)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons 
-                name={chip.icon} 
-                size={16} 
-                color={selectedInstructions.includes(chip.id) ? Colors.white : Colors.primary} 
-              />
-              <Text style={[
-                styles.chipText,
-                selectedInstructions.includes(chip.id) && styles.chipTextSelected,
-              ]}>{chip.title}</Text>
-            </TouchableOpacity>
-          ))}
+  const renderStepIndicator = () => (
+    <View style={styles.stepIndicatorContainer}>
+      <View style={styles.stepIndicator}>
+        <View style={[
+          styles.stepCircle,
+          currentStep >= 1 && styles.stepCircleActive
+        ]}>
+          <Text style={[
+            styles.stepNumber,
+            currentStep >= 1 && styles.stepNumberActive
+          ]}>1</Text>
         </View>
         
-        <TextInput
-          style={styles.textInput}
-          placeholder="Ajoutez des instructions particulières..."
-          placeholderTextColor={Colors.textTertiary}
-          value={specialNotes}
-          onChangeText={setSpecialNotes}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-          maxLength={200}
-        />
+        <View style={[
+          styles.stepConnector,
+          currentStep >= 2 && styles.stepConnectorActive
+        ]} />
+        
+        <View style={[
+          styles.stepCircle,
+          currentStep >= 2 && styles.stepCircleActive
+        ]}>
+          <Text style={[
+            styles.stepNumber,
+            currentStep >= 2 && styles.stepNumberActive
+          ]}>2</Text>
+        </View>
+
+        <View style={[
+          styles.stepConnector,
+          currentStep >= 3 && styles.stepConnectorActive
+        ]} />
+        
+        <View style={[
+          styles.stepCircle,
+          currentStep >= 3 && styles.stepCircleActive
+        ]}>
+          <Text style={[
+            styles.stepNumber,
+            currentStep >= 3 && styles.stepNumberActive
+          ]}>3</Text>
+        </View>
       </View>
-      
-      <View style={styles.stepFooter}>
-        <Button
-          title="Prendre une photo du colis"
-          onPress={handleTakePhoto}
-          style={styles.continueButton}
-        />
+
+      <View style={styles.stepLabels}>
+        <Text style={[styles.stepLabel, currentStep >= 1 && styles.stepLabelActive]}>
+          Time Window
+        </Text>
+        <Text style={[styles.stepLabel, currentStep >= 2 && styles.stepLabelActive]}>
+          Instructions
+        </Text>
+        <Text style={[styles.stepLabel, currentStep >= 3 && styles.stepLabelActive]}>
+          Notes
+        </Text>
       </View>
     </View>
   );
+
+  const renderTimeWindowStep = () => {
+    console.log('📅 Rendering time window step with options:', timeWindowOptions.length);
+    return (
+      <Animated.View style={[contentStyle, { flex: 1 }]}>
+        <View style={styles.stepHeader}>
+          <Text style={styles.stepTitle}>
+            When do you need <Text style={styles.stepTitleHighlight}>delivery</Text>?
+          </Text>
+          <Text style={styles.stepSubtitle}>
+            Choose your preferred time window
+          </Text>
+        </View>
+
+        <ScrollView 
+          style={styles.optionsScroll}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.timeWindowContainer}
+        >
+          {timeWindowOptions && timeWindowOptions.length > 0 ? (
+            timeWindowOptions.map((option, index) => (
+            <Animated.View
+              key={option.id}
+              entering={FadeInDown.delay(index * 100).springify()}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.timeWindowCard,
+                  selectedTimeWindow === option.id && styles.timeWindowCardSelected
+                ]}
+                onPress={() => handleTimeWindowSelect(option.id)}
+                activeOpacity={0.8}
+              >
+                {option.popular && (
+                  <View style={styles.popularBadge}>
+                    <Text style={styles.popularText}>POPULAR</Text>
+                  </View>
+                )}
+                
+                <LinearGradient
+                  colors={option.gradient as [string, string, ...string[]]}
+                  style={styles.timeWindowGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <Ionicons name={option.icon as any} size={28} color="white" />
+                </LinearGradient>
+
+                <View style={styles.timeWindowContent}>
+                  <Text style={styles.timeWindowTitle}>{option.title}</Text>
+                  <Text style={styles.timeWindowSubtitle}>{option.subtitle}</Text>
+                  <Text style={styles.timeWindowRange}>{option.timeRange}</Text>
+                </View>
+
+                <View style={styles.timeWindowPriceContainer}>
+                  <Text style={styles.timeWindowPrice}>{option.price}</Text>
+                  <View style={[
+                    styles.timeWindowCheckbox,
+                    selectedTimeWindow === option.id && styles.timeWindowCheckboxSelected
+                  ]}>
+                    {selectedTimeWindow === option.id && (
+                      <Feather name="check" size={16} color="white" />
+                    )}
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+          ))
+          ) : (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ color: '#666', fontFamily: Fonts.SFProDisplay.Regular }}>
+                Loading options...
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      </Animated.View>
+    );
+  };
+
+  const renderInstructionsStep = () => {
+    console.log('📋 Rendering instructions step with options:', instructionOptions.length);
+    return (
+      <Animated.View style={[contentStyle, { flex: 1 }]}>
+        <View style={styles.stepHeader}>
+          <Text style={styles.stepTitle}>
+            Special <Text style={styles.stepTitleHighlight}>instructions</Text>?
+          </Text>
+          <Text style={styles.stepSubtitle}>
+            Select all that apply
+          </Text>
+        </View>
+
+        <View style={styles.instructionsContainer}>
+          <View style={styles.instructionsGrid}>
+            {instructionOptions.map((option, index) => (
+              <Animated.View
+                key={option.id}
+                entering={FadeInUp.delay(index * 50).springify()}
+                style={[
+                  styles.instructionItemWrapper,
+                  index === 4 && { marginLeft: '26%' } // Center the last item
+                ]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.instructionItem,
+                    selectedInstructions.includes(option.id) && styles.instructionItemSelected
+                  ]}
+                  onPress={() => toggleInstruction(option.id)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[
+                    styles.instructionIcon,
+                    { backgroundColor: `${option.color}20` },
+                    selectedInstructions.includes(option.id) && { backgroundColor: option.color }
+                  ]}>
+                    <Ionicons 
+                      name={option.icon as any} 
+                      size={22} 
+                      color={selectedInstructions.includes(option.id) ? 'white' : option.color} 
+                    />
+                  </View>
+                  <Text style={[
+                    styles.instructionLabel,
+                    selectedInstructions.includes(option.id) && styles.instructionLabelSelected
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+            ))}
+          </View>
+        </View>
+      </Animated.View>
+    );
+  };
+
+  const renderNotesStep = () => (
+    <Animated.View style={[contentStyle, { flex: 1 }]}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>
+          Additional <Text style={styles.stepTitleHighlight}>notes</Text>
+        </Text>
+        <Text style={styles.stepSubtitle}>
+          Any special requests for the driver?
+        </Text>
+      </View>
+
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.notesContent}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ flex: 1 }}>
+            <Animated.View
+          entering={FadeIn.delay(200).springify()}
+          style={styles.notesInputContainer}
+        >
+          <TextInput
+            style={styles.notesInput}
+            placeholder="E.g., Ring doorbell twice, package contains fragile items..."
+            placeholderTextColor="#999"
+            multiline
+            numberOfLines={6}
+            value={specialNotes}
+            onChangeText={setSpecialNotes}
+            textAlignVertical="top"
+            maxLength={200}
+            returnKeyType="send"
+            returnKeyLabel="Send"
+            blurOnSubmit={true}
+            onSubmitEditing={() => {
+              Keyboard.dismiss();
+            }}
+          />
+          <Text style={styles.notesCounter}>
+            {specialNotes.length}/200
+          </Text>
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeIn.delay(300).springify()}
+          style={styles.quickNotesContainer}
+        >
+          <Text style={styles.quickNotesTitle}>Quick notes:</Text>
+          <View style={styles.quickNotesGrid}>
+            {['Ring twice', 'Call first', 'Handle with care', 'Leave at door'].map((note, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.quickNoteChip}
+                onPress={() => {
+                  if (specialNotes.length + note.length <= 200) {
+                    setSpecialNotes(prev => prev ? `${prev}. ${note}` : note);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.quickNoteText}>{note}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Animated.View>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </Animated.View>
+  );
+
+  const getSelectedPrice = () => {
+    const selectedWindow = timeWindowOptions.find(o => o.id === selectedTimeWindow);
+    return selectedWindow ? parseInt(selectedWindow.price.replace('$', '')) : 0;
+  };
+
+  const getInstructionsCost = () => selectedInstructions.length * 1;
+  const getTotalPrice = () => getSelectedPrice() + getInstructionsCost();
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Custom Header with Back Button */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <MaterialIcons name="arrow-back" size={24} color={Colors.textPrimary} />
+          <Feather name="arrow-left" size={20} color={Colors.textSecondary} />
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>Standard Delivery</Text>
+        <View style={styles.headerTitle}>
+          <Text style={styles.headerTitleText}>
+            Standard{' '}
+            <Text style={styles.headerTitleHighlight}>Delivery</Text>
+          </Text>
+        </View>
         
-        <View style={styles.stepIndicator}>
-          <Text style={styles.stepCounter}>{currentStep}/2</Text>
+        <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+          <Feather name="x" size={24} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Progress Bar */}
+      <View style={styles.progressContainer}>
+        <View style={styles.progressBar}>
+          <Animated.View style={[styles.progressFill, progressStyle]} />
         </View>
       </View>
 
-      {/* Progress Indicator */}
-      <ProgressIndicator />
+      {/* Step Indicator */}
+      {renderStepIndicator()}
 
-      {/* Step Content - Full Screen */}
-      <Animated.View 
-        style={[
-          styles.content,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          },
-        ]}
-      >
-        {currentStep === 1 && <TimeWindowStep />}
-        {currentStep === 2 && <InstructionsStep />}
-      </Animated.View>
+      {/* Content */}
+      <View style={styles.content}>
+        {currentStep === 1 && renderTimeWindowStep()}
+        {currentStep === 2 && renderInstructionsStep()}
+        {currentStep === 3 && renderNotesStep()}
+      </View>
+
+      {/* Price Summary */}
+      {selectedTimeWindow && (
+        <View style={styles.priceSummary}>
+          <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Time Window</Text>
+            <Text style={styles.priceValue}>
+              {timeWindowOptions.find(o => o.id === selectedTimeWindow)?.price || '$0'}
+            </Text>
+          </View>
+          {selectedInstructions.length > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Special Instructions</Text>
+              <Text style={styles.priceValue}>+${getInstructionsCost()}</Text>
+            </View>
+          )}
+          <View style={[styles.priceRow, styles.totalRow]}>
+            <Text style={styles.totalLabel}>Total</Text>
+            <Text style={styles.totalValue}>
+              ${getTotalPrice()}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Bottom Action */}
+      <View style={styles.bottomContainer}>
+        <TouchableOpacity
+          style={[
+            styles.continueButton,
+            (!selectedTimeWindow && currentStep === 1) && styles.continueButtonDisabled
+          ]}
+          onPress={handleNext}
+          disabled={!selectedTimeWindow && currentStep === 1}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={
+              (!selectedTimeWindow && currentStep === 1) 
+                ? ['#E0E0E0', '#D0D0D0']
+                : [Colors.primary, '#1BA8A8']
+            }
+            style={styles.continueGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <Text style={styles.continueText}>
+              {currentStep === totalSteps ? 'Continue to Photo' : 'Continue'}
+            </Text>
+            <Feather name="arrow-right" size={20} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -307,158 +552,175 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-    paddingTop: 50, // Account for status bar on iOS
+    backgroundColor: '#FAFAFA',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: STATUS_BAR_HEIGHT + 10,
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: Colors.background,
+    paddingBottom: 15,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F8F8F8',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
     flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
-  },
-  stepIndicator: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary + '15',
   },
-  stepCounter: {
-    fontSize: 14,
-    fontWeight: '700',
+  headerTitleText: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+  },
+  headerTitleHighlight: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
     color: Colors.primary,
+    fontSize: 21,
   },
   progressContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'white',
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
+  },
+  stepIndicatorContainer: {
+    backgroundColor: 'white',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  stepIndicator: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 40,
-    paddingVertical: 16,
-    backgroundColor: Colors.background,
   },
-  progressStep: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  progressDot: {
+  stepCircle: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F0F0F0',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.border,
   },
-  progressDotActive: {
+  stepCircleActive: {
     backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
   },
-  progressDotCompleted: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  progressNumber: {
+  stepNumber: {
     fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: '#999',
   },
-  progressNumberActive: {
-    color: Colors.white,
+  stepNumberActive: {
+    color: 'white',
   },
-  progressLine: {
-    width: 40,
+  stepConnector: {
+    width: 60,
     height: 2,
-    backgroundColor: Colors.border,
+    backgroundColor: '#F0F0F0',
     marginHorizontal: 8,
   },
-  progressLineCompleted: {
+  stepConnectorActive: {
     backgroundColor: Colors.primary,
+  },
+  stepLabels: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    marginTop: 8,
+  },
+  stepLabel: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#999',
+  },
+  stepLabelActive: {
+    color: Colors.textPrimary,
+    fontFamily: Fonts.SFProDisplay.Medium,
   },
   content: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  stepContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    backgroundColor: '#FAFAFA',
   },
   stepHeader: {
-    alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 5,
   },
   stepTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
     marginBottom: 6,
-    textAlign: 'center',
+  },
+  stepTitleHighlight: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
+    color: Colors.primary,
+    fontSize: 26,
   },
   stepSubtitle: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
+    fontSize: 15,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
   },
-  stepContent: {
+  optionsScroll: {
     flex: 1,
-    justifyContent: 'center',
   },
-  stepFooter: {
-    paddingTop: 20,
+  timeWindowContainer: {
+    padding: 20,
+    paddingTop: 10,
+    paddingBottom: 100,
   },
-  optionsGrid: {
-    gap: 12,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  optionCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
+  timeWindowCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    marginBottom: 12,
     borderWidth: 2,
-    borderColor: Colors.border,
+    borderColor: '#F0F0F0',
+    minHeight: 88,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 2,
-    position: 'relative',
-    minHeight: 140,
-    justifyContent: 'center',
   },
-  optionCardSelected: {
+  timeWindowCardSelected: {
     borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '08',
-  },
-  optionCardPopular: {
-    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}08`,
   },
   popularBadge: {
     position: 'absolute',
@@ -471,84 +733,240 @@ const styles = StyleSheet.create({
   },
   popularText: {
     fontSize: 9,
-    fontWeight: '700',
-    color: Colors.white,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: 'white',
+    letterSpacing: 0.5,
   },
-  optionIcon: {
-    marginBottom: 12,
+  timeWindowGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
   },
-  optionName: {
+  timeWindowContent: {
+    flex: 1,
+  },
+  timeWindowTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
-    marginBottom: 3,
-    textAlign: 'center',
+    marginBottom: 2,
   },
-  optionDuration: {
+  timeWindowSubtitle: {
     fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 3,
-    textAlign: 'center',
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
+    marginBottom: 2,
   },
-  optionSubtitle: {
+  timeWindowRange: {
     fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 8,
-    lineHeight: 16,
-  },
-  optionPriceContainer: {
-    alignItems: 'center',
-  },
-  optionPrice: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontFamily: Fonts.SFProDisplay.Regular,
     color: Colors.primary,
-    textAlign: 'center',
   },
-  chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
-  },
-  chip: {
-    flexDirection: 'row',
+  timeWindowPriceContainer: {
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
   },
-  chipSelected: {
+  timeWindowPrice: {
+    fontSize: 18,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.primary,
+    marginBottom: 6,
+  },
+  timeWindowCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#F0F0F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeWindowCheckboxSelected: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
-  chipText: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    fontWeight: '500',
+  instructionsContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 10,
+    justifyContent: 'flex-start',
   },
-  chipTextSelected: {
-    color: Colors.white,
+  instructionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -8,
+    justifyContent: 'space-between',
   },
-  textInput: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
+  instructionItemWrapper: {
+    width: '48%',
+    marginBottom: 12,
+  },
+  instructionItem: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    backgroundColor: 'white',
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
+    minHeight: 90,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    justifyContent: 'center',
+  },
+  instructionItemSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}08`,
+  },
+  instructionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  instructionLabel: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: '#333',
+    textAlign: 'center',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  instructionLabelSelected: {
     color: Colors.textPrimary,
+  },
+  notesInputContainer: {
+    marginTop: 20,
+    backgroundColor: 'white',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: '#F0F0F0',
+    padding: 4,
+  },
+  notesInput: {
+    padding: 12,
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textPrimary,
     minHeight: 80,
-    marginTop: 16,
     textAlignVertical: 'top',
   },
+  notesCounter: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#999',
+    textAlign: 'right',
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+  },
+  priceSummary: {
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  priceLabel: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
+  },
+  priceValue: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+  },
+  totalRow: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+  },
+  totalValue: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.primary,
+  },
+  bottomContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
   continueButton: {
-    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  continueButtonDisabled: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  continueGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  continueText: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
+  },
+  notesContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  quickNotesContainer: {
+    marginTop: 24,
+  },
+  quickNotesTitle: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+    marginBottom: 12,
+  },
+  quickNotesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickNoteChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: `${Colors.primary}15`,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: `${Colors.primary}30`,
+  },
+  quickNoteText: {
+    fontSize: 13,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.primary,
   },
 });
 

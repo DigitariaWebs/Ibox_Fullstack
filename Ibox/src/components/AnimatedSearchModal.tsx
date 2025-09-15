@@ -18,12 +18,14 @@ import Animated, {
   withDelay,
   runOnJS,
   interpolate,
+  Easing,
   FadeIn,
   FadeOut,
   SlideInUp,
   SlideOutDown,
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '../config/colors';
 
@@ -63,36 +65,61 @@ const AnimatedSearchModal: React.FC<AnimatedSearchModalProps> = ({
 }) => {
   const translateY = useSharedValue(SCREEN_HEIGHT);
   const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.95);
   const searchInputScale = useSharedValue(0.9);
   const [inputFocused, setInputFocused] = useState(false);
   const [searchMode, setSearchMode] = useState<'destination' | 'start'>('destination');
 
   useEffect(() => {
     if (visible) {
-      // Open animation
-      opacity.value = withTiming(1, { duration: 300 });
-      translateY.value = withSpring(0, {
-        damping: 20,
-        stiffness: 90,
+      console.log('🔍 AnimatedSearchModal opening with dark theme');
+      // Smooth opening animation - no bounce
+      opacity.value = withTiming(1, { 
+        duration: 300,
+        easing: Easing.out(Easing.cubic)
+      });
+      translateY.value = withTiming(0, { 
+        duration: 350,
+        easing: Easing.out(Easing.cubic)
+      });
+      scale.value = withTiming(1, { 
+        duration: 350,
+        easing: Easing.out(Easing.cubic)
       });
       searchInputScale.value = withDelay(
-        100,
-        withSpring(1, {
-          damping: 15,
-          stiffness: 150,
+        200,
+        withTiming(1, { 
+          duration: 300,
+          easing: Easing.out(Easing.cubic)
         })
       );
     } else {
-      // Close animation
-      translateY.value = withTiming(SCREEN_HEIGHT, { duration: 250 });
-      opacity.value = withTiming(0, { duration: 200 });
-      searchInputScale.value = withTiming(0.9, { duration: 200 });
+      // Smooth closing animation
+      opacity.value = withTiming(0, { 
+        duration: 250,
+        easing: Easing.in(Easing.cubic)
+      });
+      translateY.value = withTiming(SCREEN_HEIGHT, { 
+        duration: 300,
+        easing: Easing.in(Easing.cubic)
+      });
+      scale.value = withTiming(0.95, { 
+        duration: 250,
+        easing: Easing.in(Easing.cubic)
+      });
+      searchInputScale.value = withTiming(0.9, { 
+        duration: 200,
+        easing: Easing.in(Easing.cubic)
+      });
     }
   }, [visible]);
 
   const modalAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ translateY: translateY.value }],
+      transform: [
+        { translateY: translateY.value },
+        { scale: scale.value }
+      ],
       opacity: opacity.value,
     };
   });
@@ -194,8 +221,8 @@ const AnimatedSearchModal: React.FC<AnimatedSearchModalProps> = ({
           <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
             <Ionicons 
               name="close" 
-              size={20} 
-              color={Colors.textSecondary} 
+              size={24} 
+              color="#64748B" 
             />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
@@ -350,31 +377,37 @@ const styles = StyleSheet.create({
   modal: {
     flex: 1,
     backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    marginTop: 50,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: 60,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 12,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
   closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E293B',
+    letterSpacing: -0.5,
   },
   placeholder: {
     width: 36,
@@ -396,9 +429,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   startLocationIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#F0FDF4',
     justifyContent: 'center',
     alignItems: 'center',
@@ -409,24 +442,24 @@ const styles = StyleSheet.create({
   },
   startLocationLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: '#64748B',
     fontWeight: '500',
     marginBottom: 2,
   },
   startLocationValue: {
     fontSize: 14,
-    color: Colors.textPrimary,
+    color: '#1E293B',
     fontWeight: '600',
   },
   changeLocationButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F8FAFC',
   },
   changeLocationText: {
     fontSize: 14,
-    color: Colors.primary,
+    color: '#3B82F6',
     fontWeight: '600',
   },
   searchContainer: {
@@ -449,7 +482,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.textPrimary,
+    color: '#1E293B',
     fontWeight: '500',
   },
   quickActions: {
@@ -459,7 +492,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.textPrimary,
+    color: '#1E293B',
     marginBottom: 15,
   },
   quickActionItem: {
@@ -476,7 +509,7 @@ const styles = StyleSheet.create({
   },
   quickActionText: {
     fontSize: 16,
-    color: Colors.textPrimary,
+    color: '#1E293B',
     fontWeight: '500',
   },
   suggestionsContainer: {
@@ -510,16 +543,16 @@ const styles = StyleSheet.create({
   mainText: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.textPrimary,
+    color: '#1E293B',
     marginBottom: 2,
   },
   secondaryText: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: '#64748B',
   },
   suggestionText: {
     fontSize: 15,
-    color: Colors.textPrimary,
+    color: '#1E293B',
     lineHeight: 20,
   },
   noResults: {
@@ -535,13 +568,13 @@ const styles = StyleSheet.create({
   noResultsText: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
+    color: '#1E293B',
     marginBottom: 8,
     textAlign: 'center',
   },
   noResultsSubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: 20,
   },

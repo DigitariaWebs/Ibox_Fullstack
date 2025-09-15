@@ -1,28 +1,39 @@
 import React, { useEffect, useState } from 'react';
 import {
   View,
-  StyleSheet,
   Text,
   TouchableOpacity,
   ScrollView,
   Dimensions,
+  Platform,
   StatusBar,
 } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
   withSpring,
+  withTiming,
+  interpolate,
+  Extrapolation,
   FadeIn,
-  FadeOut,
-  SlideInUp,
-  SlideOutDown,
+  runOnJS,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { BlurView } from 'expo-blur';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '../config/colors';
+import { Fonts } from '../config/fonts';
+import { Icon } from '../ui/Icon';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
+
+// Animation constants
+const COMPACT_WIDTH = SCREEN_WIDTH * 0.92;
+const EXPANDED_WIDTH = SCREEN_WIDTH;
+const EXPANDED_HEIGHT = SCREEN_HEIGHT * 0.65;
+const COMPACT_HEIGHT = 72;
+const BOTTOM_MARGIN = 20;
 
 interface ServiceSelectionModalProps {
   visible: boolean;
@@ -75,16 +86,6 @@ const services: Service[] = [
     estimatedTime: '2-4 hours',
     color: '#45B7D1',
   },
-  {
-    id: 'storage',
-    title: 'Storage Service',
-    description: 'Secure storage solutions',
-    icon: 'archive',
-    iconFamily: 'Ionicons',
-    price: 'From $25/month',
-    estimatedTime: 'Flexible',
-    color: '#96CEB4',
-  },
 ];
 
 const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
@@ -95,333 +96,585 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
   onReset,
   destination,
 }) => {
-  const translateY = useSharedValue(SCREEN_HEIGHT);
-  const opacity = useSharedValue(0);
+  const [animationState, setAnimationState] = useState<'hidden' | 'compact' | 'expanded'>('hidden');
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  
+  // Animation values
+  const animationProgress = useSharedValue(0); // 0 = hidden, 1 = compact, 2 = expanded
+  const backdropOpacity = useSharedValue(0);
+  const backdropBlur = useSharedValue(0);
+  const contentOpacity = useSharedValue(0);
+  const dragY = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
-      opacity.value = withTiming(1, { duration: 300 });
-      translateY.value = withSpring(0, {
-        damping: 20,
-        stiffness: 90,
+      // Show compact state first
+      setAnimationState('compact');
+      animationProgress.value = withSpring(1, {
+        damping: 15,
+        stiffness: 100,
+        mass: 0.8,
       });
+      // Don't show backdrop in compact state
+      backdropOpacity.value = withTiming(0, { duration: 0 });
+      contentOpacity.value = withTiming(1, { duration: 200 });
+      
+      // Auto-expand after a short delay for smooth transition
+      setTimeout(() => {
+        expandToFullWidth();
+      }, 400); // Slightly longer delay for better transition from location picker
     } else {
-      translateY.value = withTiming(SCREEN_HEIGHT, { duration: 250 });
-      opacity.value = withTiming(0, { duration: 200 });
+      // Hide modal
+      setAnimationState('hidden');
+      animationProgress.value = withSpring(0, {
+        damping: 15,
+        stiffness: 100,
+        mass: 0.8,
+      });
+      backdropOpacity.value = withTiming(0, { duration: 200 });
+      backdropBlur.value = withTiming(0, { duration: 200 });
+      contentOpacity.value = withTiming(0, { duration: 150 });
     }
   }, [visible]);
 
-  const modalAnimatedStyle = useAnimatedStyle(() => {
+  const expandToFullWidth = () => {
+    setAnimationState('expanded');
+    animationProgress.value = withSpring(2, {
+      damping: 18,
+      stiffness: 120,
+      mass: 1,
+    });
+    backdropOpacity.value = withTiming(0.6, { duration: 300 });
+    backdropBlur.value = withTiming(10, { duration: 300 });
+  };
+
+  const collapseToCompact = () => {
+    setAnimationState('compact');
+    animationProgress.value = withSpring(1, {
+      damping: 15,
+      stiffness: 100,
+      mass: 0.8,
+    });
+    backdropOpacity.value = withTiming(0, { duration: 200 });
+    backdropBlur.value = withTiming(0, { duration: 200 });
+    dragY.value = withSpring(0);
+  };
+
+  const closeModal = () => {
+    onClose();
+  };
+
+  // Gesture handler for swipe interactions
+  const panGesture = Gesture.Pan()
+    .onStart(() => {})
+    .onUpdate((event) => {
+      if (animationState === 'expanded') {
+        dragY.value = Math.max(0, event.translationY);
+      }
+    })
+    .onEnd((event) => {
+      if (animationState === 'expanded') {
+        if (event.translationY > 100 || event.velocityY > 500) {
+          if (dragY.value > EXPANDED_HEIGHT * 0.3) {
+            runOnJS(closeModal)();
+          } else {
+            runOnJS(collapseToCompact)();
+          }
+        } else {
+          dragY.value = withSpring(0);
+        }
+      }
+    });
+
+  // Animated styles
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity.value,
+  }));
+
+  const blurStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity.value,
+  }));
+
+  const modalContainerStyle = useAnimatedStyle(() => {
+    const isExpanded = animationProgress.value >= 1.5;
+
+    const width = interpolate(
+      animationProgress.value,
+      [0, 1, 2],
+      [COMPACT_WIDTH, COMPACT_WIDTH, EXPANDED_WIDTH],
+      Extrapolation.CLAMP
+    );
+
+    const height = interpolate(
+      animationProgress.value,
+      [0, 1, 2],
+      [COMPACT_HEIGHT, COMPACT_HEIGHT, EXPANDED_HEIGHT],
+      Extrapolation.CLAMP
+    );
+
+    const bottomOffset = interpolate(
+      animationProgress.value,
+      [0, 1, 2],
+      [-(COMPACT_HEIGHT + BOTTOM_MARGIN), BOTTOM_MARGIN, 0],
+      Extrapolation.CLAMP
+    );
+
+    const borderRadius = interpolate(
+      animationProgress.value,
+      [0, 1, 2],
+      [24, 24, 20],
+      Extrapolation.CLAMP
+    );
+
     return {
-      transform: [{ translateY: translateY.value }],
+      width,
+      height: height + dragY.value,
+      bottom: bottomOffset,
+      borderRadius,
+      transform: [{ translateY: isExpanded ? dragY.value : 0 }],
     };
   });
 
-  const backdropAnimatedStyle = useAnimatedStyle(() => {
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+  }));
+
+  const handleBarStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      animationProgress.value,
+      [1, 1.5, 2],
+      [0, 0.5, 1],
+      Extrapolation.CLAMP
+    );
+
     return {
-      opacity: opacity.value,
+      opacity,
     };
   });
+
+  const handleServiceSelect = (serviceId: string) => {
+    setSelectedServiceId(serviceId);
+    onSelectService(serviceId);
+    // Smooth closing animation
+    setTimeout(() => {
+      collapseToCompact();
+      setTimeout(() => {
+        closeModal();
+      }, 200);
+    }, 200);
+  };
 
   const renderIcon = (service: Service) => {
     const IconComponent = service.iconFamily === 'Ionicons' ? Ionicons : MaterialIcons;
     return (
       <IconComponent
         name={service.icon as any}
-        size={28}
+        size={22}
         color="white"
       />
     );
   };
 
-  const handleServiceSelect = (serviceId: string) => {
-    setSelectedServiceId(serviceId);
-    onSelectService(serviceId);
-    onClose();
-  };
-
-  const handleContinue = () => {
-    if (selectedServiceId && onContinue) {
-      onContinue(selectedServiceId);
-    }
-    onClose();
-  };
-
-  const getSelectedService = () => {
-    return services.find(service => service.id === selectedServiceId);
-  };
-
   if (!visible) return null;
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      
-      {/* Backdrop */}
-      <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
-        <TouchableOpacity 
-          style={StyleSheet.absoluteFill} 
-          onPress={onClose}
-          activeOpacity={1}
-        >
-          <BlurView intensity={20} style={StyleSheet.absoluteFill} />
-        </TouchableOpacity>
-      </Animated.View>
-
-      {/* Modal Content */}
-      <Animated.View style={[styles.modal, modalAnimatedStyle]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons 
-              name="close" 
-              size={20} 
-              color={Colors.textSecondary} 
-            />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Select Service</Text>
-          <View style={styles.placeholder} />
-        </View>
-
-        {/* Reset Locations Button */}
-        {onReset && (
-          <View style={styles.resetContainer}>
-            <TouchableOpacity style={styles.resetButton} onPress={onReset}>
-              <Ionicons name="refresh" size={16} color={Colors.primary} />
-              <Text style={styles.resetText}>Reset Locations</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Destination Info */}
-        {destination && (
-          <Animated.View 
-            style={styles.destinationInfo}
-            entering={FadeIn.delay(200)}
+    <>
+      {/* Backdrop - Only show when expanded */}
+      {animationState === 'expanded' && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}>
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: '#000',
+              },
+              backdropStyle,
+            ]}
           >
-            <Ionicons 
-              name="location" 
-              size={20} 
-              color={Colors.primary} 
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              activeOpacity={1}
+              onPress={closeModal}
             />
-            <Text style={styles.destinationText} numberOfLines={2}>
-              {destination}
-            </Text>
           </Animated.View>
-        )}
 
-        {/* Services List */}
-        <ScrollView 
-          style={styles.servicesContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.sectionTitle}>Available Services</Text>
-          
-          {services.map((service, index) => (
-            <Animated.View
-              key={service.id}
-              entering={SlideInUp.delay(index * 100).duration(400)}
-              exiting={SlideOutDown.duration(200)}
-            >
-              <TouchableOpacity
-                style={styles.serviceItem}
-                onPress={() => handleServiceSelect(service.id)}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.serviceIcon, { backgroundColor: service.color }]}>
-                  {renderIcon(service)}
-                </View>
-                
-                <View style={styles.serviceContent}>
-                  <Text style={styles.serviceTitle}>{service.title}</Text>
-                  <Text style={styles.serviceDescription}>{service.description}</Text>
-                  
-                  <View style={styles.serviceDetails}>
-                    <View style={styles.priceContainer}>
-                      <Text style={styles.priceLabel}>Price:</Text>
-                      <Text style={styles.priceValue}>{service.price}</Text>
+          {/* Blur View */}
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              },
+              blurStyle,
+            ]}
+          >
+            <BlurView
+              intensity={10}
+              style={{ flex: 1 }}
+              experimentalBlurMethod="dimezisBlurView"
+            />
+          </Animated.View>
+        </View>
+      )}
+
+      {/* Modal Container */}
+      <View 
+        style={{ 
+          position: 'absolute', 
+          bottom: 0, 
+          left: 0, 
+          right: 0,
+          alignItems: 'center',
+          zIndex: animationState === 'expanded' ? 1000 : 10,
+        }}
+        pointerEvents="box-none"
+      >
+        <GestureDetector gesture={panGesture}>
+          <Animated.View
+            style={[
+              {
+                backgroundColor: '#FFFFFF',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.1,
+                shadowRadius: 12,
+                elevation: 6,
+                overflow: 'hidden',
+              },
+              modalContainerStyle,
+            ]}
+          >
+            <Animated.View style={[{ flex: 1 }, contentStyle]}>
+              {/* Handle Bar - Only visible when expanded */}
+              {animationState === 'expanded' && (
+                <Animated.View
+                  style={[
+                    {
+                      alignItems: 'center',
+                      paddingTop: 12,
+                      paddingBottom: 8,
+                    },
+                    handleBarStyle,
+                  ]}
+                >
+                  <View
+                    style={{
+                      width: 36,
+                      height: 4,
+                      backgroundColor: '#E5E5E5',
+                      borderRadius: 2,
+                    }}
+                  />
+                </Animated.View>
+              )}
+
+              {/* Compact State Content */}
+              {animationState === 'compact' && (
+                <Animated.View
+                  entering={FadeIn.delay(100)}
+                  style={{
+                    height: '100%',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingHorizontal: 20,
+                  }}
+                >
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    flex: 1,
+                    marginRight: 12
+                  }}>
+                    <View style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: `${Colors.primary}12`,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 14
+                    }}>
+                      <Icon name="package" type="Feather" size={20} color={Colors.primary} />
                     </View>
-                    <View style={styles.timeContainer}>
-                      <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
-                      <Text style={styles.timeValue}>{service.estimatedTime}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                        <Text
+                          style={{
+                            fontSize: 17,
+                            fontFamily: Fonts.SFProDisplay.Medium,
+                            color: '#1A1A1A',
+                            letterSpacing: -0.3,
+                          }}
+                        >
+                          Choose{' '}
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontFamily: Fonts.PlayfairDisplay.Variable,
+                            fontStyle: 'italic',
+                            color: Colors.primary,
+                            letterSpacing: -0.3,
+                          }}
+                        >
+                          Service
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontFamily: Fonts.SFProDisplay.Regular,
+                          color: '#6B7280',
+                          marginTop: 1,
+                        }}
+                      >
+                        Select delivery type
+                      </Text>
                     </View>
                   </View>
+                </Animated.View>
+              )}
+
+              {/* Expanded State Content */}
+              {animationState === 'expanded' && (
+                <View style={{ flex: 1 }}>
+                  {/* Fixed Header */}
+                  <Animated.View
+                    entering={FadeIn.delay(150)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 16,
+                      paddingHorizontal: 20,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#F0F0F0',
+                    }}
+                  >
+                    <TouchableOpacity
+                      onPress={closeModal}
+                      style={{ marginRight: 16 }}
+                      activeOpacity={0.6}
+                    >
+                      <Icon name="arrow-left" type="Feather" size={24} color="#666" />
+                    </TouchableOpacity>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'baseline' }}>
+                      <Text
+                        style={{
+                          fontSize: 18,
+                          fontFamily: Fonts.SFProDisplay.Medium,
+                          color: '#333',
+                        }}
+                      >
+                        Choose{' '}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 19,
+                          fontFamily: Fonts.PlayfairDisplay.Variable,
+                          fontStyle: 'italic',
+                          color: Colors.primary,
+                        }}
+                      >
+                        Service
+                      </Text>
+                    </View>
+                  </Animated.View>
+
+                  {/* Destination Info */}
+                  {destination && (
+                    <Animated.View
+                      entering={FadeIn.delay(200)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        marginHorizontal: 20,
+                        marginTop: 16,
+                        paddingHorizontal: 16,
+                        paddingVertical: 12,
+                        backgroundColor: `${Colors.primary}08`,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: `${Colors.primary}20`,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          backgroundColor: `${Colors.primary}15`,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: 12,
+                        }}
+                      >
+                        <Icon name="map-pin" type="Feather" size={16} color={Colors.primary} />
+                      </View>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontFamily: Fonts.SFProDisplay.Regular,
+                          color: '#333',
+                          flex: 1,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {destination}
+                      </Text>
+                    </Animated.View>
+                  )}
+
+                  {/* Services List */}
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 }}
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                  >
+                    <Animated.View entering={FadeIn.delay(250)}>
+                      <Text
+                        style={{
+                          fontSize: 16,
+                          fontFamily: Fonts.SFProDisplay.Medium,
+                          color: '#333',
+                          marginBottom: 16,
+                        }}
+                      >
+                        Available Services
+                      </Text>
+
+                      {services.map((service, index) => (
+                        <Animated.View
+                          key={service.id}
+                          entering={FadeIn.delay(300 + index * 50)}
+                        >
+                          <TouchableOpacity
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              paddingVertical: 16,
+                              paddingHorizontal: 16,
+                              backgroundColor: selectedServiceId === service.id ? `${service.color}08` : '#F8F8F8',
+                              borderRadius: 16,
+                              marginBottom: 12,
+                              borderWidth: 1,
+                              borderColor: selectedServiceId === service.id ? `${service.color}40` : '#E5E5E5',
+                            }}
+                            onPress={() => handleServiceSelect(service.id)}
+                            activeOpacity={0.7}
+                          >
+                            <View
+                              style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: service.color,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginRight: 14,
+                              }}
+                            >
+                              {renderIcon(service)}
+                            </View>
+
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{
+                                  fontSize: 16,
+                                  fontFamily: Fonts.SFProDisplay.Medium,
+                                  color: '#1A1A1A',
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {service.title}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontFamily: Fonts.SFProDisplay.Regular,
+                                  color: '#6B7280',
+                                  lineHeight: 18,
+                                }}
+                              >
+                                {service.description}
+                              </Text>
+                            </View>
+
+                            <View style={{ alignItems: 'flex-end' }}>
+                              <Text
+                                style={{
+                                  fontSize: 15,
+                                  fontFamily: Fonts.SFProDisplay.Medium,
+                                  color: service.color,
+                                  marginBottom: 2,
+                                }}
+                              >
+                                {service.price}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontFamily: Fonts.SFProDisplay.Regular,
+                                  color: '#9CA3AF',
+                                }}
+                              >
+                                {service.estimatedTime}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        </Animated.View>
+                      ))}
+                    </Animated.View>
+
+                    {/* Reset Button */}
+                    {onReset && (
+                      <Animated.View
+                        entering={FadeIn.delay(500)}
+                        style={{ marginTop: 20 }}
+                      >
+                        <TouchableOpacity
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            paddingVertical: 14,
+                            backgroundColor: '#F0F0F0',
+                            borderRadius: 12,
+                            gap: 8,
+                          }}
+                          onPress={onReset}
+                          activeOpacity={0.7}
+                        >
+                          <Icon name="refresh-cw" type="Feather" size={16} color="#666" />
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontFamily: Fonts.SFProDisplay.Medium,
+                              color: '#666',
+                            }}
+                          >
+                            Reset Locations
+                          </Text>
+                        </TouchableOpacity>
+                      </Animated.View>
+                    )}
+                  </ScrollView>
                 </View>
-                
-                <Ionicons 
-                  name="chevron-forward" 
-                  size={20} 
-                  color={Colors.textSecondary} 
-                />
-              </TouchableOpacity>
+              )}
             </Animated.View>
-          ))}
-        </ScrollView>
-      </Animated.View>
-    </View>
+          </Animated.View>
+        </GestureDetector>
+      </View>
+    </>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1500,
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modal: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    marginTop: 100,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  placeholder: {
-    width: 36,
-  },
-  destinationInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#F8FAFC',
-    marginHorizontal: 20,
-    marginTop: 15,
-    borderRadius: 12,
-  },
-  destinationText: {
-    marginLeft: 10,
-    fontSize: 14,
-    color: Colors.textPrimary,
-    flex: 1,
-    fontWeight: '500',
-  },
-  servicesContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 20,
-  },
-  serviceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  serviceIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  serviceContent: {
-    flex: 1,
-  },
-  serviceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  serviceDescription: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 8,
-  },
-  serviceDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  priceLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginRight: 4,
-  },
-  priceValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  timeValue: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginLeft: 4,
-  },
-  resetContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  resetButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: '#F0F9FF',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.primary + '20',
-    gap: 6,
-  },
-  resetText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.primary,
-  },
-});
 
 export default ServiceSelectionModal;

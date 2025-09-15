@@ -5,7 +5,8 @@ import * as Location from 'expo-location';
 import { useNavigation, NavigationProp, useRoute } from '@react-navigation/native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Colors } from './config/colors';
-import AnimatedSearchModal from './components/AnimatedSearchModal';
+import { Fonts } from './config/fonts';
+import { FloatingLocationPicker } from './components/FloatingLocationPicker';
 import TopNavigation from './components/TopNavigation';
 import ProfessionalSidebar from './components/ProfessionalSidebar';
 import ServiceSelectionModal from './components/ServiceSelectionModal';
@@ -902,10 +903,10 @@ const HomeScreen: React.FC = () => {
       )}
       
       {/* Bottom Action Buttons */}
-      {selectedService ? (
+      {selectedService && (
         // Service Selected - Show two buttons
         <View style={styles.serviceButtonsContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.selectedServiceButton, { backgroundColor: getServiceColor(selectedService) }]}
             onPress={() => setSelectedService(null)}
             activeOpacity={0.8}
@@ -915,8 +916,8 @@ const HomeScreen: React.FC = () => {
             </View>
             <Text style={styles.selectedServiceText}>{getServiceTitle(selectedService)}</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={styles.continueButton}
             onPress={handleServiceContinue}
             activeOpacity={0.8}
@@ -925,51 +926,37 @@ const HomeScreen: React.FC = () => {
             <Ionicons name="arrow-forward" size={16} color="white" />
           </TouchableOpacity>
         </View>
-      ) : (
-        // Default search button
-        <TouchableOpacity 
-          style={[
-            styles.searchButton, 
-            selectedDestination && styles.destinationButton
-          ]} 
-          onPress={() => {
-            if (selectedDestination) {
-              setShowServiceSelection(true);
-            } else {
-              setModalVisible(true);
-            }
-          }}
-        >
-          <Ionicons 
-            name={selectedDestination ? "car" : "search"} 
-            size={20} 
-            color={selectedDestination ? "white" : Colors.textSecondary} 
-            style={styles.searchButtonIcon}
-          />
-          <Text style={[
-            styles.searchButtonText,
-            selectedDestination && styles.destinationButtonText
-          ]}>
-            {selectedDestination ? "Select Service" : "Where to?"}
-          </Text>
-        </TouchableOpacity>
       )}
 
-      {/* Modals */}
-      <AnimatedSearchModal
-        visible={modalVisible}
+      {/* Floating Location Picker (Redesigned with compact and expanded states) */}
+      <FloatingLocationPicker
+        visible={!selectedService} // Always visible when no service is selected
         onClose={() => {
-          setModalVisible(false);
-          setSuggestions([]);
-          setSearchQuery('');
+          // This would typically close the modal, but since it's always visible when no service is selected,
+          // we don't need to do anything here
         }}
-        onSearch={searchPlaces}
-        onSelectPlace={getPlaceDetails}
-        suggestions={suggestions}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        startLocation={startLocation}
-        onChangeStartLocation={handleChangeStartLocation}
+        onLocationSelect={(location) => {
+          // Handle location selection
+          console.log('Location selected:', location);
+          
+          // Store the selected destination
+          const destinationMarker = {
+            id: location.place_id || 'selected-location',
+            coordinate: {
+              latitude: location.latitude || currentLocation.latitude,
+              longitude: location.longitude || currentLocation.longitude,
+            },
+            title: location.name || location.description || 'Selected Location',
+            description: location.address || location.description || '',
+            type: 'destination' as const,
+          };
+          
+          setSelectedDestination(destinationMarker);
+          setMarkers([destinationMarker]);
+          
+          // Show service selection modal
+          setShowServiceSelection(true);
+        }}
       />
 
       <ProfessionalSidebar
@@ -1108,37 +1095,61 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 4,
   },
-  searchButton: {
+  // Floating location picker trigger button
+  floatingTrigger: {
     position: 'absolute',
-    bottom: 40,
+    bottom: 32,
     left: 20,
     right: 20,
     backgroundColor: 'white',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 25,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 4,
   },
-  searchButtonIcon: {
-    marginRight: 10,
+  triggerIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.textPrimary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
   },
-  searchButtonText: {
-    fontSize: 16,
+  triggerTextContainer: {
+    flex: 1,
+  },
+  triggerTextRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  triggerMainText: {
+    fontSize: 18,
     fontWeight: '600',
     color: Colors.textPrimary,
+    letterSpacing: -0.3,
   },
-  destinationButton: {
-    backgroundColor: Colors.primary,
+  triggerPlayfairText: {
+    fontSize: 20,
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    color: Colors.textPrimary,
+    fontWeight: '400',
+    letterSpacing: -0.5,
   },
-  destinationButtonText: {
-    color: 'white',
+  triggerSubText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  triggerArrowContainer: {
+    marginLeft: 12,
   },
   serviceButtonsContainer: {
     position: 'absolute',

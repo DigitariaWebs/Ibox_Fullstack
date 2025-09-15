@@ -1,10 +1,11 @@
 import User from '../models/User.js';
 import socketService from './socketService.js';
-import redisConfig from '../config/redis.js';
+// Redis removed - using in-memory storage for development
 
 class NotificationService {
   constructor() {
-    this.redis = redisConfig;
+    // In-memory storage for development (replace with database in production)
+    this.notifications = new Map();
   }
 
   // Send push notification to user

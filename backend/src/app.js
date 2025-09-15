@@ -9,7 +9,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 // Configuration imports
 import databaseConfig from './config/database.js';
-import redisConfig from './config/redis.js';
 import socketManager from './config/socket.js';
 
 // Middleware imports
@@ -48,8 +47,7 @@ app.set('trust proxy', 1);
 const requiredEnvVars = [
   'NODE_ENV',
   'JWT_SECRET',
-  'MONGODB_URI',
-  'REDIS_URL'
+  'MONGODB_URI'
 ];
 
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -212,8 +210,7 @@ app.get(`${API_BASE_PATH}/status`, (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     services: {
-      database: databaseConfig.isConnected() ? 'connected' : 'disconnected',
-      redis: redisConfig.isHealthy() ? 'connected' : 'disconnected'
+      database: databaseConfig.isConnected() ? 'connected' : 'disconnected'
     }
   });
 });
@@ -298,7 +295,7 @@ app.all('*', handleUndefinedRoutes);
 // Global error handling middleware
 app.use(globalErrorHandler);
 
-// Database and Redis connections
+// Database connection
 const connectServices = async () => {
   try {
     console.log('🔌 Connecting to services...');
@@ -306,10 +303,6 @@ const connectServices = async () => {
     // Connect to MongoDB
     await databaseConfig.connect();
     console.log('✅ MongoDB connected successfully');
-    
-    // Connect to Redis
-    await redisConfig.connect();
-    console.log('✅ Redis connected successfully');
     
     return true;
   } catch (error) {
@@ -339,7 +332,7 @@ const startServer = async () => {
       // Initialize Socket.io server
       try {
         await socketManager.initialize(server);
-        console.log('🔌 Socket.io server initialized with Redis adapter');
+        console.log('🔌 Socket.io server initialized');
       } catch (socketError) {
         console.error('⚠️ Socket.io initialization failed:', socketError);
         console.log('📱 Continuing without real-time features');

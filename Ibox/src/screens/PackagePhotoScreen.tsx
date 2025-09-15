@@ -1,32 +1,42 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
-  StyleSheet,
   Text,
   TouchableOpacity,
   Alert,
   StatusBar,
   Image,
   Dimensions,
+  Platform,
+  ScrollView,
+  StyleSheet,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
+  withSequence,
+  withDelay,
+  interpolate,
+  Extrapolation,
   FadeIn,
+  FadeInDown,
   FadeOut,
   SlideInUp,
+  ZoomIn,
 } from 'react-native-reanimated';
 import { NavigationProp, RouteProp } from '@react-navigation/native';
 import { Colors } from '../config/colors';
+import { Fonts } from '../config/fonts';
+import { Icon } from '../ui/Icon';
 
-// Safe window dimensions
-const windowDims = Dimensions.get('window');
-const SCREEN_WIDTH = windowDims?.width || 375;
-const SCREEN_HEIGHT = windowDims?.height || 667;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
 
 type RootStackParamList = {
   PackagePhoto: {
@@ -34,6 +44,9 @@ type RootStackParamList = {
     startLocation: string;
     startLocationCoords: {latitude: number; longitude: number};
     destination: any;
+    urgency?: string;
+    specialInstructions?: string[];
+    specialNotes?: string;
   };
   Measuring: {
     service: string;
@@ -41,7 +54,12 @@ type RootStackParamList = {
     startLocationCoords: {latitude: number; longitude: number};
     destination: any;
     packagePhoto: string;
+    urgency?: string;
+    specialInstructions?: string[];
+    specialNotes?: string;
   };
+  ExpressOrderSummary: any;
+  StandardOrderSummary: any;
   [key: string]: any;
 };
 
@@ -54,106 +72,107 @@ const PackagePhotoScreen: React.FC<PackagePhotoScreenProps> = ({
   navigation,
   route,
 }) => {
-  console.log('📷 PackagePhoto: Component mounted');
-  
   const [permission, requestPermission] = useCameraPermissions();
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [currentStep, setCurrentStep] = useState('Preparing analysis...');
+  const [currentStep, setCurrentStep] = useState('');
+  const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [flashEnabled, setFlashEnabled] = useState(false);
+  const [showTips, setShowTips] = useState(true);
   const cameraRef = useRef<CameraView>(null);
-  
-  console.log('📷 PackagePhoto: Screen dimensions:', { width: SCREEN_WIDTH, height: SCREEN_HEIGHT });
-  
+
+  // Animation values
   const captureScale = useSharedValue(1);
   const photoOpacity = useSharedValue(0);
   const analysisProgress = useSharedValue(0);
+  const tipOpacity = useSharedValue(1);
+  const cameraScale = useSharedValue(0.95);
+  const overlayOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    // Initial animations
+    cameraScale.value = withSpring(1, {
+      damping: 15,
+      stiffness: 100,
+    });
+
+    // Auto-hide tips after 5 seconds
+    const tipTimer = setTimeout(() => {
+      tipOpacity.value = withTiming(0, { duration: 500 });
+      setTimeout(() => setShowTips(false), 500);
+    }, 5000);
+
+    return () => clearTimeout(tipTimer);
+  }, []);
 
   useEffect(() => {
     if (capturedPhoto) {
       photoOpacity.value = withTiming(1, { duration: 300 });
+      overlayOpacity.value = withTiming(1, { duration: 300 });
+      startAnalysis();
     }
   }, [capturedPhoto]);
 
-  // Simulate AI analysis when photo is captured
-  useEffect(() => {
-    if (capturedPhoto && !isAnalyzing) {
-      setIsAnalyzing(true);
-      
-      // Simulate progressive AI analysis
-      const analysisSteps = [
-        { delay: 800, progress: 0.1, status: 'Initializing AI vision model...' },
-        { delay: 1600, progress: 0.2, status: 'Detecting package edges and corners...' },
-        { delay: 2400, progress: 0.35, status: 'Analyzing surface textures...' },
-        { delay: 3200, progress: 0.5, status: 'Calculating precise dimensions...' },
-        { delay: 4000, progress: 0.65, status: 'Estimating material density...' },
-        { delay: 4800, progress: 0.8, status: 'Computing weight distribution...' },
-        { delay: 5600, progress: 0.9, status: 'Validating measurements...' },
-        { delay: 6400, progress: 1.0, status: 'Analysis complete!' },
-      ];
+  const startAnalysis = () => {
+    setIsAnalyzing(true);
+    const steps = [
+      'Analyzing package dimensions...',
+      'Estimating weight...',
+      'Checking fragility indicators...',
+      'Calculating optimal handling...',
+      'Finalizing analysis...',
+    ];
 
-      analysisSteps.forEach((step, index) => {
-        setTimeout(() => {
-          analysisProgress.value = withTiming(step.progress, { duration: 400 });
-          setCurrentStep(step.status);
-          
-          if (index === analysisSteps.length - 1) {
-            setTimeout(() => {
-              continueToNext();
-            }, 800);
-          }
-        }, step.delay);
-      });
-    }
-  }, [capturedPhoto]);
-
-  const captureAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: captureScale.value }],
-    };
-  });
-
-  const photoAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: photoOpacity.value,
-    };
-  });
-
-  const progressAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      width: `${analysisProgress.value * 100}%`,
-    };
-  });
-
-  const handleCameraPermission = async () => {
-    if (!permission?.granted) {
-      const { status } = await requestPermission();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Camera Permission Required',
-          'Please enable camera access to take a photo of your package.',
-          [
-            { text: 'Cancel', onPress: () => navigation.goBack() },
-            { text: 'Settings', onPress: () => requestPermission() },
-          ]
-        );
-        return false;
+    let stepIndex = 0;
+    const interval = setInterval(() => {
+      if (stepIndex < steps.length) {
+        setCurrentStep(steps[stepIndex]);
+        analysisProgress.value = withTiming((stepIndex + 1) / steps.length, {
+          duration: 600,
+        });
+        stepIndex++;
+      } else {
+        clearInterval(interval);
+        setAnalysisComplete(true);
+        setTimeout(() => navigateNext(), 1500);
       }
-    }
-    return true;
+    }, 800);
   };
 
-  const takePicture = async () => {
+  const navigateNext = () => {
+    const { service, urgency } = route.params;
+    const nextScreen = 
+      service === 'express' || urgency 
+        ? 'ExpressOrderSummary' 
+        : service === 'standard'
+        ? 'StandardOrderSummary'
+        : 'Measuring';
+
+    navigation.navigate(nextScreen, {
+      ...route.params,
+      packagePhoto: capturedPhoto,
+      aiAnalysis: {
+        dimensions: { length: 30, width: 25, height: 20 },
+        estimatedWeight: '2.5 kg',
+        fragility: 'Standard',
+        handling: 'Normal',
+      },
+    });
+  };
+
+  const handleCapture = async () => {
     if (!cameraRef.current || !cameraReady) return;
 
     try {
-      captureScale.value = withSpring(0.9, { duration: 100 }, () => {
-        captureScale.value = withSpring(1, { duration: 200 });
-      });
+      // Capture animation
+      captureScale.value = withSequence(
+        withTiming(0.9, { duration: 100 }),
+        withSpring(1, { damping: 10, stiffness: 200 })
+      );
 
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
-        base64: false,
         skipProcessing: false,
       });
 
@@ -161,54 +180,49 @@ const PackagePhotoScreen: React.FC<PackagePhotoScreenProps> = ({
         setCapturedPhoto(photo.uri);
       }
     } catch (error) {
-      console.error('Error taking picture:', error);
-      Alert.alert('Error', 'Failed to take picture. Please try again.');
+      console.error('Error capturing photo:', error);
+      Alert.alert('Error', 'Failed to capture photo. Please try again.');
     }
   };
 
-  const retakePicture = () => {
-    photoOpacity.value = withTiming(0, { duration: 200 }, () => {
-      setCapturedPhoto(null);
-      setIsAnalyzing(false);
-      analysisProgress.value = 0;
-      setCurrentStep('Preparing analysis...');
-    });
+  const handleRetake = () => {
+    setCapturedPhoto(null);
+    setIsAnalyzing(false);
+    setAnalysisComplete(false);
+    setCurrentStep('');
+    photoOpacity.value = withTiming(0, { duration: 200 });
+    overlayOpacity.value = withTiming(0, { duration: 200 });
+    analysisProgress.value = withTiming(0, { duration: 200 });
   };
 
-  const continueToNext = () => {
-    if (capturedPhoto) {
-      const { nextScreen, serviceType } = route.params;
-      
-      // Navigate based on service type or nextScreen parameter
-      if (nextScreen) {
-        console.log('📷 PackagePhoto: Navigating to', nextScreen);
-        navigation.navigate(nextScreen, {
-          ...route.params,
-          packagePhoto: capturedPhoto,
-        });
-      } else if (serviceType === 'standard') {
-        navigation.navigate('Measuring', {
-          ...route.params,
-          packagePhoto: capturedPhoto,
-        });
-      } else {
-        // Default flow for other services
-        navigation.navigate('Measuring', {
-          ...route.params,
-          packagePhoto: capturedPhoto,
-        });
-      }
-    }
-  };
+  const captureButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: captureScale.value }],
+  }));
 
-  const handleBackPress = () => {
-    navigation.goBack();
-  };
+  const photoStyle = useAnimatedStyle(() => ({
+    opacity: photoOpacity.value,
+  }));
+
+  const analysisProgressStyle = useAnimatedStyle(() => ({
+    width: `${analysisProgress.value * 100}%`,
+  }));
+
+  const tipStyle = useAnimatedStyle(() => ({
+    opacity: tipOpacity.value,
+  }));
+
+  const cameraContainerStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: cameraScale.value }],
+  }));
+
+  const overlayStyle = useAnimatedStyle(() => ({
+    opacity: overlayOpacity.value,
+  }));
 
   if (!permission) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading camera...</Text>
+        <Text style={styles.message}>Requesting camera permission...</Text>
       </View>
     );
   }
@@ -216,78 +230,26 @@ const PackagePhotoScreen: React.FC<PackagePhotoScreenProps> = ({
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <View style={styles.permissionContainer}>
-          <Ionicons name="camera" size={80} color={Colors.textSecondary} />
+        <View style={styles.permissionCard}>
+          <Icon name="camera-off" type="Feather" size={48} color={Colors.textSecondary} />
           <Text style={styles.permissionTitle}>Camera Access Required</Text>
           <Text style={styles.permissionText}>
-            Please allow camera access to take a photo of your package
+            We need camera access to photograph your package for accurate delivery handling.
           </Text>
           <TouchableOpacity
             style={styles.permissionButton}
-            onPress={handleCameraPermission}
+            onPress={requestPermission}
+            activeOpacity={0.8}
           >
-            <Text style={styles.permissionButtonText}>Enable Camera</Text>
+            <LinearGradient
+              colors={[Colors.primary, '#1BA8A8']}
+              style={styles.permissionGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Text style={styles.permissionButtonText}>Grant Permission</Text>
+            </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={handleBackPress}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // Show AI Analysis Screen
-  if (isAnalyzing && capturedPhoto) {
-    return (
-      <View style={styles.analysisContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
-        
-        <View style={styles.analysisContent}>
-          <Animated.View entering={FadeIn.delay(200)}>
-            <View style={styles.aiIcon}>
-              <MaterialIcons name="auto-awesome" size={48} color={Colors.primary} />
-            </View>
-          </Animated.View>
-          
-          <Animated.Text 
-            style={styles.analysisTitle}
-            entering={SlideInUp.delay(400)}
-          >
-            AI Package Analysis
-          </Animated.Text>
-          
-          <Animated.Text 
-            style={styles.analysisSubtitle}
-            entering={SlideInUp.delay(600)}
-          >
-            Our AI is analyzing your package photo to determine optimal pricing
-          </Animated.Text>
-          
-          <Animated.View 
-            style={styles.photoContainer}
-            entering={SlideInUp.delay(800)}
-          >
-            <Image source={{ uri: capturedPhoto }} style={styles.packagePhoto} />
-            <View style={styles.scanOverlay}>
-              <View style={styles.scanLine} />
-            </View>
-          </Animated.View>
-          
-          <Animated.View 
-            style={styles.progressContainer}
-            entering={SlideInUp.delay(1000)}
-          >
-            <Text style={styles.stepText}>{currentStep}</Text>
-            <View style={styles.progressBar}>
-              <Animated.View style={[styles.progressFill, progressAnimatedStyle]} />
-            </View>
-            <Text style={styles.progressText}>
-              {Math.round(analysisProgress.value * 100)}% Complete
-            </Text>
-          </Animated.View>
         </View>
       </View>
     );
@@ -295,76 +257,166 @@ const PackagePhotoScreen: React.FC<PackagePhotoScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="black" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-          <Ionicons name="arrow-back" size={24} color="white" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Package Photo</Text>
-        <View style={styles.placeholder} />
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       {/* Camera View */}
       {!capturedPhoto ? (
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          facing="back"
-          onCameraReady={() => setCameraReady(true)}
-        >
-          {/* Camera Overlay */}
-          <View style={styles.cameraOverlay}>
-            <View style={styles.instructionContainer}>
-              <Animated.View entering={FadeIn.delay(500)}>
-                <Text style={styles.instructionText}>
-                  Position your package in the frame
-                </Text>
-                <Text style={styles.instructionSubtext}>
-                  Make sure the entire package is visible
-                </Text>
+        <Animated.View style={[styles.cameraContainer, cameraContainerStyle]}>
+          <CameraView
+            ref={cameraRef}
+            style={styles.camera}
+            facing="back"
+            flash={flashEnabled ? 'on' : 'off'}
+            onCameraReady={() => setCameraReady(true)}
+          >
+            {/* Header Overlay */}
+            <View style={styles.cameraHeader}>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => navigation.goBack()}
+                activeOpacity={0.7}
+              >
+                <BlurView intensity={50} style={styles.blurButton}>
+                  <Icon name="arrow-left" type="Feather" size={22} color="white" />
+                </BlurView>
+              </TouchableOpacity>
+
+              <Text style={styles.cameraTitle}>
+                Package <Text style={styles.cameraTitleHighlight}>Photo</Text>
+              </Text>
+
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => setFlashEnabled(!flashEnabled)}
+                activeOpacity={0.7}
+              >
+                <BlurView intensity={50} style={styles.blurButton}>
+                  <Icon 
+                    name={flashEnabled ? "zap" : "zap-off"} 
+                    type="Feather" 
+                    size={22} 
+                    color="white" 
+                  />
+                </BlurView>
+              </TouchableOpacity>
+            </View>
+
+            {/* Camera Guide */}
+            <View style={styles.cameraGuide}>
+              <View style={styles.guideCorner} />
+              <View style={[styles.guideCorner, styles.guideCornerTR]} />
+              <View style={[styles.guideCorner, styles.guideCornerBL]} />
+              <View style={[styles.guideCorner, styles.guideCornerBR]} />
+            </View>
+
+            {/* Tips */}
+            {showTips && (
+              <Animated.View style={[styles.tipsContainer, tipStyle]} entering={FadeInDown}>
+                <BlurView intensity={60} style={styles.tipsBlur}>
+                  <Icon name="info" type="Feather" size={18} color="white" />
+                  <Text style={styles.tipsText}>
+                    Center your package in the frame for best results
+                  </Text>
+                </BlurView>
               </Animated.View>
-            </View>
+            )}
 
-            {/* Package Frame */}
-            <View style={styles.packageFrame}>
-              <View style={styles.frameCorner} />
-              <View style={[styles.frameCorner, styles.topRight]} />
-              <View style={[styles.frameCorner, styles.bottomLeft]} />
-              <View style={[styles.frameCorner, styles.bottomRight]} />
-            </View>
+            {/* Camera Controls */}
+            <View style={styles.cameraControls}>
+              <TouchableOpacity
+                style={styles.galleryButton}
+                activeOpacity={0.7}
+              >
+                <BlurView intensity={50} style={styles.blurButton}>
+                  <Icon name="image" type="Feather" size={22} color="white" />
+                </BlurView>
+              </TouchableOpacity>
 
-            {/* Capture Button */}
-            <View style={styles.captureContainer}>
-              <Animated.View style={captureAnimatedStyle}>
+              <Animated.View style={captureButtonStyle}>
                 <TouchableOpacity
                   style={styles.captureButton}
-                  onPress={takePicture}
+                  onPress={handleCapture}
+                  activeOpacity={0.8}
                   disabled={!cameraReady}
                 >
-                  <View style={styles.captureButtonInner} />
+                  <View style={styles.captureButtonOuter}>
+                    <View style={styles.captureButtonInner} />
+                  </View>
                 </TouchableOpacity>
               </Animated.View>
+
+              <View style={styles.placeholderButton} />
             </View>
-          </View>
-        </CameraView>
+          </CameraView>
+        </Animated.View>
       ) : (
-        /* Photo Preview with Retake Option */
-        <Animated.View style={[styles.photoPreview, photoAnimatedStyle]}>
-          <Image source={{ uri: capturedPhoto }} style={styles.previewImage} />
-          
-          {/* Photo Actions */}
-          <View style={styles.photoActions}>
+        <View style={styles.photoContainer}>
+          <Animated.Image
+            source={{ uri: capturedPhoto }}
+            style={[styles.capturedPhoto, photoStyle]}
+            resizeMode="cover"
+          />
+
+          {/* Analysis Overlay */}
+          <Animated.View style={[styles.analysisOverlay, overlayStyle]}>
+            <BlurView intensity={80} style={styles.analysisBlur}>
+              {isAnalyzing && !analysisComplete ? (
+                <Animated.View entering={FadeIn}>
+                  <View style={styles.analysisContent}>
+                    <Animated.View
+                      entering={ZoomIn.springify()}
+                      style={styles.analysisIcon}
+                    >
+                      <LinearGradient
+                        colors={[Colors.primary, '#1BA8A8']}
+                        style={styles.analysisIconGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      >
+                        <Icon name="package" type="Feather" size={32} color="white" />
+                      </LinearGradient>
+                    </Animated.View>
+
+                    <Text style={styles.analysisTitle}>AI Analysis</Text>
+                    <Text style={styles.analysisStep}>{currentStep}</Text>
+
+                    <View style={styles.analysisProgressBar}>
+                      <Animated.View
+                        style={[styles.analysisProgressFill, analysisProgressStyle]}
+                      />
+                    </View>
+                  </View>
+                </Animated.View>
+              ) : analysisComplete ? (
+                <Animated.View entering={ZoomIn.springify()}>
+                  <View style={styles.analysisComplete}>
+                    <View style={styles.successIcon}>
+                      <Icon name="check-circle" type="Feather" size={48} color={Colors.primary} />
+                    </View>
+                    <Text style={styles.successTitle}>Analysis Complete!</Text>
+                    <Text style={styles.successSubtitle}>
+                      Package dimensions and details captured
+                    </Text>
+                  </View>
+                </Animated.View>
+              ) : null}
+            </BlurView>
+          </Animated.View>
+
+          {/* Retake Button */}
+          {!isAnalyzing && (
             <TouchableOpacity
               style={styles.retakeButton}
-              onPress={retakePicture}
+              onPress={handleRetake}
+              activeOpacity={0.8}
             >
-              <Ionicons name="camera" size={20} color={Colors.textSecondary} />
-              <Text style={styles.retakeText}>Retake</Text>
+              <BlurView intensity={60} style={styles.retakeBlur}>
+                <Icon name="refresh-ccw" type="Feather" size={20} color="white" />
+                <Text style={styles.retakeText}>Retake Photo</Text>
+              </BlurView>
             </TouchableOpacity>
-          </View>
-        </Animated.View>
+          )}
+        </View>
       )}
     </View>
   );
@@ -373,172 +425,173 @@ const PackagePhotoScreen: React.FC<PackagePhotoScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'black',
+    backgroundColor: '#000',
   },
-  loadingText: {
-    color: 'white',
+  message: {
     fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: 'white',
     textAlign: 'center',
-    marginTop: SCREEN_HEIGHT / 2,
   },
-  permissionContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  permissionCard: {
+    backgroundColor: 'white',
+    margin: 20,
+    padding: 30,
+    borderRadius: 20,
     alignItems: 'center',
-    paddingHorizontal: 40,
-    backgroundColor: Colors.background,
   },
   permissionTitle: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
-    marginTop: 24,
-    marginBottom: 12,
-    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 8,
   },
   permissionText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
+    fontSize: 15,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#666',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: 24,
+    lineHeight: 22,
   },
   permissionButton: {
-    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  permissionGradient: {
     paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 25,
-    marginBottom: 16,
+    paddingVertical: 14,
   },
   permissionButtonText: {
-    color: 'white',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  cancelButton: {
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-  },
-  cancelButtonText: {
-    color: Colors.textSecondary,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    zIndex: 10,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: 'white',
   },
-  placeholder: {
-    width: 40,
+  cameraContainer: {
+    flex: 1,
   },
   camera: {
     flex: 1,
   },
-  cameraOverlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
+  cameraHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: STATUS_BAR_HEIGHT + 10,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
   },
-  instructionContainer: {
+  headerButton: {
+    width: 44,
+    height: 44,
+  },
+  blurButton: {
+    flex: 1,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  cameraTitle: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
+  },
+  cameraTitleHighlight: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
+    color: Colors.primary,
+  },
+  cameraGuide: {
     position: 'absolute',
-    top: 100,
+    top: '25%',
+    left: '10%',
+    right: '10%',
+    bottom: '30%',
+  },
+  guideCorner: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderColor: 'white',
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderTopLeftRadius: 8,
+  },
+  guideCornerTR: {
+    borderLeftWidth: 0,
+    borderRightWidth: 3,
+    borderTopRightRadius: 8,
+    borderTopLeftRadius: 0,
+    right: 0,
+  },
+  guideCornerBL: {
+    borderTopWidth: 0,
+    borderBottomWidth: 3,
+    borderBottomLeftRadius: 8,
+    borderTopLeftRadius: 0,
+    bottom: 0,
+  },
+  guideCornerBR: {
+    borderTopWidth: 0,
+    borderLeftWidth: 0,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: 8,
+    bottom: 0,
+    right: 0,
+  },
+  tipsContainer: {
+    position: 'absolute',
+    top: '35%',
     left: 20,
     right: 20,
     alignItems: 'center',
   },
-  instructionText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-    textAlign: 'center',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+  tipsBlur: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    overflow: 'hidden',
+    gap: 8,
   },
-  instructionSubtext: {
+  tipsText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: 'white',
   },
-  packageFrame: {
-    position: 'absolute',
-    top: '30%',
-    left: '15%',
-    right: '15%',
-    bottom: '35%',
-  },
-  frameCorner: {
-    position: 'absolute',
-    width: 30,
-    height: 30,
-    borderColor: 'white',
-    top: 0,
-    left: 0,
-    borderTopWidth: 3,
-    borderLeftWidth: 3,
-  },
-  topRight: {
-    top: 0,
-    right: 0,
-    left: 'auto',
-    borderTopWidth: 3,
-    borderRightWidth: 3,
-    borderLeftWidth: 0,
-  },
-  bottomLeft: {
-    bottom: 0,
-    top: 'auto',
-    borderBottomWidth: 3,
-    borderLeftWidth: 3,
-    borderTopWidth: 0,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    top: 'auto',
-    left: 'auto',
-    borderBottomWidth: 3,
-    borderRightWidth: 3,
-    borderTopWidth: 0,
-    borderLeftWidth: 0,
-  },
-  captureContainer: {
+  cameraControls: {
     position: 'absolute',
     bottom: 40,
     left: 0,
     right: 0,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: 40,
+  },
+  galleryButton: {
+    width: 50,
+    height: 50,
   },
   captureButton: {
     width: 80,
     height: 80,
-    borderRadius: 40,
-    backgroundColor: 'white',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captureButtonOuter: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 4,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'white',
   },
   captureButtonInner: {
     width: 60,
@@ -546,129 +599,99 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     backgroundColor: 'white',
   },
-  photoPreview: {
-    flex: 1,
-    backgroundColor: 'black',
+  placeholderButton: {
+    width: 50,
+    height: 50,
   },
-  previewImage: {
+  photoContainer: {
     flex: 1,
-    width: '100%',
-    resizeMode: 'contain',
   },
-  photoActions: {
+  capturedPhoto: {
+    flex: 1,
+  },
+  analysisOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  analysisBlur: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analysisContent: {
+    alignItems: 'center',
+    padding: 30,
+  },
+  analysisIcon: {
+    marginBottom: 20,
+  },
+  analysisIconGradient: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analysisTitle: {
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
+    marginBottom: 8,
+  },
+  analysisStep: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 24,
+  },
+  analysisProgressBar: {
+    width: 200,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  analysisProgressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
+  },
+  analysisComplete: {
+    alignItems: 'center',
+    padding: 30,
+  },
+  successIcon: {
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
+    marginBottom: 8,
+  },
+  successSubtitle: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  retakeButton: {
     position: 'absolute',
     bottom: 40,
     left: 20,
     right: 20,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  retakeButton: {
+  retakeBlur: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 20,
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
     gap: 8,
   },
   retakeText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  // Analysis Screen Styles (copied from ExpressOrderSummary)
-  analysisContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  analysisContent: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  aiIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.primary + '20',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  analysisTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  analysisSubtitle: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
-  },
-  photoContainer: {
-    position: 'relative',
-    marginBottom: 32,
-  },
-  packagePhoto: {
-    width: 200,
-    height: 200,
-    borderRadius: 16,
-    backgroundColor: Colors.surface,
-  },
-  scanOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scanLine: {
-    width: '80%',
-    height: 2,
-    backgroundColor: Colors.primary,
-    opacity: 0.8,
-  },
-  progressContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  stepText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 16,
-    textAlign: 'center',
-    minHeight: 20,
-  },
-  progressBar: {
-    width: '100%',
-    height: 8,
-    backgroundColor: Colors.surface,
-    borderRadius: 4,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: 4,
-  },
-  progressText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: Colors.primary,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
   },
 });
 
