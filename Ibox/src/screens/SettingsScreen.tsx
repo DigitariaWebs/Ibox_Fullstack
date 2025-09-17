@@ -1,57 +1,42 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
   ScrollView,
-  Animated,
-  Alert,
-  Switch,
+  TouchableOpacity,
+  Dimensions,
   Platform,
-  Linking,
-  RefreshControl,
+  StatusBar,
+  Switch,
+  Alert,
 } from 'react-native';
-import { Text, Icon } from '../ui';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withDelay,
+  FadeInDown,
+} from 'react-native-reanimated';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../config/colors';
-import { useAuth } from '../contexts/AuthContext';
-import apiService from '../services/api';
+import { Fonts } from '../config/fonts';
+import * as Haptics from 'expo-haptics';
 
-interface SettingsScreenProps {
-  navigation: any;
+// Optional notification import - fallback if not available
+let Notifications: any = null;
+try {
+  Notifications = require('expo-notifications');
+} catch (error) {
+  console.warn('expo-notifications not available, notification features disabled');
 }
 
-interface UserSettings {
-  notifications: {
-    push: boolean;
-    email: boolean;
-    sms: boolean;
-    orderUpdates: boolean;
-    promotions: boolean;
-  };
-  privacy: {
-    locationServices: boolean;
-    dataSharing: boolean;
-    analytics: boolean;
-    contactsAccess: boolean;
-  };
-  preferences: {
-    language: string;
-    currency: string;
-    theme: 'light' | 'dark' | 'system';
-    autoBackup: boolean;
-    biometricAuth: boolean;
-    soundEffects: boolean;
-    vibration: boolean;
-  };
-  accessibility: {
-    largeText: boolean;
-    highContrast: boolean;
-    voiceOver: boolean;
-    reducedMotion: boolean;
-  };
-}
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 0) + 20;
 
 interface SettingItem {
   id: string;
@@ -59,739 +44,604 @@ interface SettingItem {
   subtitle: string;
   icon: string;
   color: string;
-  type: 'toggle' | 'navigation' | 'action';
+  type: 'toggle' | 'nav' | 'action';
   value?: boolean;
-  onValueChange?: (value: boolean) => void;
-  action?: () => void;
+  onToggle?: (value: boolean) => void;
+  onPress?: () => void;
 }
 
-const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
-  const { logout, user } = useAuth();
-  const [settings, setSettings] = useState<UserSettings>({
-    notifications: {
-      push: true,
-      email: true,
-      sms: false,
-      orderUpdates: true,
-      promotions: false,
-    },
-    privacy: {
-      locationServices: true,
-      dataSharing: false,
-      analytics: true,
-      contactsAccess: false,
-    },
-    preferences: {
-      language: 'English',
-      currency: 'CAD',
-      theme: 'light',
-      autoBackup: true,
-      biometricAuth: false,
-      soundEffects: true,
-      vibration: true,
-    },
-    accessibility: {
-      largeText: false,
-      highContrast: false,
-      voiceOver: false,
-      reducedMotion: false,
-    },
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+interface SettingsSection {
+  id: string;
+  title: string;
+  items: SettingItem[];
+}
+
+const SettingsScreen: React.FC = () => {
+  const navigation = useNavigation();
+  
+  // Settings state
+  const [pushNotifications, setPushNotifications] = useState(true);
+  const [orderNotifications, setOrderNotifications] = useState(true);
+  const [locationTracking, setLocationTracking] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(false);
+  const [smsNotifications, setSmsNotifications] = useState(false);
 
   // Animation values
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const fadeAnim = useSharedValue(0);
+  const slideAnim = useSharedValue(30);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 50,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
+    // Initial animations
+    fadeAnim.value = withDelay(200, withTiming(1, { duration: 600 }));
+    slideAnim.value = withDelay(200, withSpring(0, { damping: 15, stiffness: 100 }));
+    
+    // Load saved settings
     loadSettings();
   }, []);
 
   const loadSettings = async () => {
-    setIsLoading(true);
     try {
-      // TODO: Load user settings from backend
-      console.log('Loading user settings from backend...');
+      const settings = await AsyncStorage.getItem('driverSettings');
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        setPushNotifications(parsed.pushNotifications ?? true);
+        setOrderNotifications(parsed.orderNotifications ?? true);
+        setLocationTracking(parsed.locationTracking ?? true);
+        setDarkMode(parsed.darkMode ?? false);
+        setSoundEnabled(parsed.soundEnabled ?? true);
+        setVibrationEnabled(parsed.vibrationEnabled ?? true);
+        setEmailNotifications(parsed.emailNotifications ?? false);
+        setSmsNotifications(parsed.smsNotifications ?? false);
+      }
     } catch (error) {
       console.error('Error loading settings:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
+  const saveSettings = async (newSettings: any) => {
     try {
-      await loadSettings();
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const updateSetting = async (category: keyof UserSettings, key: string, value: any) => {
-    try {
-      setSettings(prev => ({
-        ...prev,
-        [category]: {
-          ...prev[category],
-          [key]: value,
-        },
-      }));
-      
-      // TODO: Sync with backend
-      console.log(`Updated ${category}.${key} to:`, value);
+      const currentSettings = {
+        pushNotifications,
+        orderNotifications,
+        locationTracking,
+        darkMode,
+        soundEnabled,
+        vibrationEnabled,
+        emailNotifications,
+        smsNotifications,
+        ...newSettings,
+      };
+      await AsyncStorage.setItem('driverSettings', JSON.stringify(currentSettings));
     } catch (error) {
-      console.error('Error updating setting:', error);
-      Alert.alert('Error', 'Failed to update setting');
+      console.error('Error saving settings:', error);
     }
   };
 
-  const handleLanguageSelection = () => {
-    Alert.alert(
-      'Select Language',
-      'Choose your preferred language',
-      [
-        { text: 'English', onPress: () => updateSetting('preferences', 'language', 'English') },
-        { text: 'Français', onPress: () => updateSetting('preferences', 'language', 'Français') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const handlePushNotificationsToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (value && Notifications) {
+      try {
+        // Request notification permissions
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Permission Required',
+            'Please enable notifications in your device settings to receive delivery updates.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to request notification permissions:', error);
+        Alert.alert(
+          'Permission Error',
+          'Unable to request notification permissions. You can enable them manually in device settings.',
+          [{ text: 'OK' }]
+        );
+      }
+    } else if (value && !Notifications) {
+      Alert.alert(
+        'Feature Unavailable',
+        'Notification features are not available in this build. Please check your app configuration.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    setPushNotifications(value);
+    await saveSettings({ pushNotifications: value });
+    
+    if (!value) {
+      // Also disable order notifications if push is disabled
+      setOrderNotifications(false);
+      await saveSettings({ orderNotifications: false });
+    }
   };
 
-
-  const handleThemeSelection = () => {
-    Alert.alert(
-      'Select Theme',
-      'Choose your preferred app theme',
-      [
-        { text: 'Light', onPress: () => updateSetting('preferences', 'theme', 'light') },
-        { text: 'Dark', onPress: () => updateSetting('preferences', 'theme', 'dark') },
-        { text: 'System Default', onPress: () => updateSetting('preferences', 'theme', 'system') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const handleOrderNotificationsToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setOrderNotifications(value);
+    await saveSettings({ orderNotifications: value });
   };
 
-  const handleClearCache = () => {
+  const handleLocationTrackingToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (!value) {
+      Alert.alert(
+        'Location Required',
+        'Location tracking is required to match you with nearby delivery requests and track your progress.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disable',
+            style: 'destructive',
+            onPress: async () => {
+              setLocationTracking(false);
+              await saveSettings({ locationTracking: false });
+            }
+          }
+        ]
+      );
+    } else {
+      setLocationTracking(value);
+      await saveSettings({ locationTracking: value });
+    }
+  };
+
+  const handleSoundToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSoundEnabled(value);
+    await saveSettings({ soundEnabled: value });
+  };
+
+  const handleVibrationToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setVibrationEnabled(value);
+    await saveSettings({ vibrationEnabled: value });
+  };
+
+  const handleEmailToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEmailNotifications(value);
+    await saveSettings({ emailNotifications: value });
+  };
+
+  const handleSmsToggle = async (value: boolean) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSmsNotifications(value);
+    await saveSettings({ smsNotifications: value });
+  };
+
+  const clearCache = async () => {
     Alert.alert(
       'Clear Cache',
-      'This will clear temporary files and may improve app performance.',
+      'This will clear all cached data including maps and images. The app may load slower initially.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear Cache',
-          onPress: () => {
-            // TODO: Implement cache clearing
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            // Clear cache logic would go here
             Alert.alert('Success', 'Cache cleared successfully');
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  const handleResetSettings = () => {
+  const resetSettings = async () => {
     Alert.alert(
       'Reset Settings',
-      'This will reset all settings to default values. This cannot be undone.',
+      'This will reset all settings to their default values.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => {
-            Alert.alert(
-              'Confirm Reset',
-              'Are you sure you want to reset all settings?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Reset',
-                  style: 'destructive',
-                  onPress: () => {
-                    // TODO: Reset to default settings
-                    Alert.alert('Success', 'Settings have been reset to defaults');
-                  },
-                },
-              ]
-            );
-          },
-        },
-      ]
-    );
-  };
-
-  const handleLogout = async () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Sign Out', 
-          style: 'destructive',
           onPress: async () => {
-            try {
-              setIsLoading(true);
-              await logout();
-              console.log('✅ User logged out successfully');
-            } catch (error) {
-              console.error('❌ Logout error:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
-            } finally {
-              setIsLoading(false);
-            }
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            
+            // Reset all settings to defaults
+            setPushNotifications(true);
+            setOrderNotifications(true);
+            setLocationTracking(true);
+            setDarkMode(false);
+            setSoundEnabled(true);
+            setVibrationEnabled(true);
+            setEmailNotifications(false);
+            setSmsNotifications(false);
+            
+            await AsyncStorage.removeItem('driverSettings');
+            
+            Alert.alert('Success', 'Settings have been reset to default values');
           }
-        },
+        }
       ]
     );
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This action cannot be undone. All your data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
+  const settingsSections: SettingsSection[] = [
+    {
+      id: 'notifications',
+      title: 'Notification Preferences',
+      items: [
         {
-          text: 'Continue',
-          style: 'destructive',
+          id: 'push_notifications',
+          title: 'Push Notifications',
+          subtitle: 'Receive notifications for new delivery requests',
+          icon: 'bell',
+          color: '#3B82F6',
+          type: 'toggle',
+          value: pushNotifications,
+          onToggle: handlePushNotificationsToggle,
+        },
+        {
+          id: 'order_notifications',
+          title: 'Order Updates',
+          subtitle: 'Get notified about order status changes',
+          icon: 'package',
+          color: '#10B981',
+          type: 'toggle',
+          value: orderNotifications && pushNotifications,
+          onToggle: handleOrderNotificationsToggle,
+        },
+        {
+          id: 'email_notifications',
+          title: 'Email Notifications',
+          subtitle: 'Receive important updates via email',
+          icon: 'mail',
+          color: '#F59E0B',
+          type: 'toggle',
+          value: emailNotifications,
+          onToggle: handleEmailToggle,
+        },
+        {
+          id: 'sms_notifications',
+          title: 'SMS Notifications',
+          subtitle: 'Get text messages for urgent updates',
+          icon: 'message-circle',
+          color: '#8B5CF6',
+          type: 'toggle',
+          value: smsNotifications,
+          onToggle: handleSmsToggle,
+        },
+      ],
+    },
+    {
+      id: 'app_behavior',
+      title: 'App Behavior',
+      items: [
+        {
+          id: 'location_tracking',
+          title: 'Location Tracking',
+          subtitle: 'Allow app to track your location for deliveries',
+          icon: 'map-pin',
+          color: '#EF4444',
+          type: 'toggle',
+          value: locationTracking,
+          onToggle: handleLocationTrackingToggle,
+        },
+        {
+          id: 'sound_enabled',
+          title: 'Sound Effects',
+          subtitle: 'Play sounds for notifications and actions',
+          icon: 'volume-2',
+          color: '#06B6D4',
+          type: 'toggle',
+          value: soundEnabled,
+          onToggle: handleSoundToggle,
+        },
+        {
+          id: 'vibration_enabled',
+          title: 'Haptic Feedback',
+          subtitle: 'Enable vibration for button taps and notifications',
+          icon: 'smartphone',
+          color: '#84CC16',
+          type: 'toggle',
+          value: vibrationEnabled,
+          onToggle: handleVibrationToggle,
+        },
+      ],
+    },
+    {
+      id: 'account',
+      title: 'Account & Data',
+      items: [
+        {
+          id: 'privacy_policy',
+          title: 'Privacy Policy',
+          subtitle: 'Learn how we protect your data',
+          icon: 'shield',
+          color: '#6366F1',
+          type: 'nav',
           onPress: () => {
-            Alert.alert(
-              'Final Confirmation',
-              'Please confirm that you want to permanently delete your account. This will remove all your orders, addresses, and personal data.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete Account',
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      // TODO: Implement account deletion API
-                      Alert.alert('Account Deletion', 'Your account deletion request has been submitted. You will receive a confirmation email within 24 hours.');
-                    } catch (error) {
-                      Alert.alert('Error', 'Failed to delete account. Please contact support.');
-                    }
-                  },
-                },
-              ]
-            );
+            // Navigate to privacy policy
+            Alert.alert('Privacy Policy', 'Privacy policy would open here');
           },
         },
-      ]
-    );
-  };
-
-  // Notification Settings
-  const notificationSettings: SettingItem[] = [
-    {
-      id: 'push-notifications',
-      title: 'Push Notifications',
-      subtitle: 'Receive app notifications',
-      icon: 'bell',
-      color: '#0AA5A8',
-      type: 'toggle',
-      value: settings.notifications.push,
-      onValueChange: (value) => updateSetting('notifications', 'push', value),
-    },
-    {
-      id: 'email-notifications',
-      title: 'Email Notifications',
-      subtitle: 'Receive emails for important updates',
-      icon: 'mail',
-      color: '#F59E0B',
-      type: 'toggle',
-      value: settings.notifications.email,
-      onValueChange: (value) => updateSetting('notifications', 'email', value),
-    },
-    {
-      id: 'sms-notifications',
-      title: 'SMS Notifications',
-      subtitle: 'Receive text message updates',
-      icon: 'message-square',
-      color: '#3B82F6',
-      type: 'toggle',
-      value: settings.notifications.sms,
-      onValueChange: (value) => updateSetting('notifications', 'sms', value),
-    },
-    {
-      id: 'order-updates',
-      title: 'Order Updates',
-      subtitle: 'Notifications for order status changes',
-      icon: 'package',
-      color: '#8B5CF6',
-      type: 'toggle',
-      value: settings.notifications.orderUpdates,
-      onValueChange: (value) => updateSetting('notifications', 'orderUpdates', value),
-    },
-    {
-      id: 'promotions',
-      title: 'Promotional Offers',
-      subtitle: 'Receive special offers and discounts',
-      icon: 'tag',
-      color: '#F97316',
-      type: 'toggle',
-      value: settings.notifications.promotions,
-      onValueChange: (value) => updateSetting('notifications', 'promotions', value),
+        {
+          id: 'terms_of_service',
+          title: 'Terms of Service',
+          subtitle: 'Read our terms and conditions',
+          icon: 'file-text',
+          color: '#EC4899',
+          type: 'nav',
+          onPress: () => {
+            // Navigate to terms of service
+            Alert.alert('Terms of Service', 'Terms of service would open here');
+          },
+        },
+        {
+          id: 'clear_cache',
+          title: 'Clear Cache',
+          subtitle: 'Free up storage space',
+          icon: 'trash-2',
+          color: '#F97316',
+          type: 'action',
+          onPress: clearCache,
+        },
+        {
+          id: 'reset_settings',
+          title: 'Reset Settings',
+          subtitle: 'Reset all settings to default values',
+          icon: 'rotate-ccw',
+          color: '#EF4444',
+          type: 'action',
+          onPress: resetSettings,
+        },
+      ],
     },
   ];
 
-  // Privacy Settings
-  const privacySettings: SettingItem[] = [
-    {
-      id: 'location-services',
-      title: 'Location Services',
-      subtitle: 'Allow location access for better service',
-      icon: 'map-pin',
-      color: '#8B5CF6',
-      type: 'toggle',
-      value: settings.privacy.locationServices,
-      onValueChange: (value) => updateSetting('privacy', 'locationServices', value),
-    },
-    {
-      id: 'data-sharing',
-      title: 'Data Sharing',
-      subtitle: 'Share anonymous usage data',
-      icon: 'share-2',
-      color: '#10B981',
-      type: 'toggle',
-      value: settings.privacy.dataSharing,
-      onValueChange: (value) => updateSetting('privacy', 'dataSharing', value),
-    },
-    {
-      id: 'analytics',
-      title: 'Analytics',
-      subtitle: 'Help improve the app experience',
-      icon: 'bar-chart-2',
-      color: '#F97316',
-      type: 'toggle',
-      value: settings.privacy.analytics,
-      onValueChange: (value) => updateSetting('privacy', 'analytics', value),
-    },
-    {
-      id: 'contacts-access',
-      title: 'Contacts Access',
-      subtitle: 'Access contacts for easier sharing',
-      icon: 'users',
-      color: '#0AA5A8',
-      type: 'toggle',
-      value: settings.privacy.contactsAccess,
-      onValueChange: (value) => updateSetting('privacy', 'contactsAccess', value),
-    },
-  ];
+  // Animated styles
+  const containerStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: slideAnim.value }],
+  }));
 
-  // App Preferences
-  const appPreferences: SettingItem[] = [
-    {
-      id: 'language',
-      title: 'Language',
-      subtitle: settings.preferences.language,
-      icon: 'globe',
-      color: '#0AA5A8',
-      type: 'action',
-      action: handleLanguageSelection,
-    },
-    {
-      id: 'theme',
-      title: 'App Theme',
-      subtitle: settings.preferences.theme === 'light' ? 'Light Mode' : settings.preferences.theme === 'dark' ? 'Dark Mode' : 'System Default',
-      icon: settings.preferences.theme === 'dark' ? 'moon' : 'sun',
-      color: '#F59E0B',
-      type: 'action',
-      action: handleThemeSelection,
-    },
-    {
-      id: 'biometric-auth',
-      title: 'Biometric Authentication',
-      subtitle: 'Use Face ID or Touch ID',
-      icon: 'shield',
-      color: '#8B5CF6',
-      type: 'toggle',
-      value: settings.preferences.biometricAuth,
-      onValueChange: (value) => updateSetting('preferences', 'biometricAuth', value),
-    },
-    {
-      id: 'auto-backup',
-      title: 'Auto Backup',
-      subtitle: 'Automatically backup app data',
-      icon: 'hard-drive',
-      color: '#10B981',
-      type: 'toggle',
-      value: settings.preferences.autoBackup,
-      onValueChange: (value) => updateSetting('preferences', 'autoBackup', value),
-    },
-    {
-      id: 'sound-effects',
-      title: 'Sound Effects',
-      subtitle: 'Play sounds for app interactions',
-      icon: 'volume-2',
-      color: '#3B82F6',
-      type: 'toggle',
-      value: settings.preferences.soundEffects,
-      onValueChange: (value) => updateSetting('preferences', 'soundEffects', value),
-    },
-    {
-      id: 'vibration',
-      title: 'Vibration',
-      subtitle: 'Vibrate for notifications and feedback',
-      icon: 'smartphone',
-      color: '#6B7280',
-      type: 'toggle',
-      value: settings.preferences.vibration,
-      onValueChange: (value) => updateSetting('preferences', 'vibration', value),
-    },
-  ];
-
-  // Accessibility Settings
-  const accessibilitySettings: SettingItem[] = [
-    {
-      id: 'large-text',
-      title: 'Large Text',
-      subtitle: 'Increase text size for better readability',
-      icon: 'type',
-      color: '#0AA5A8',
-      type: 'toggle',
-      value: settings.accessibility.largeText,
-      onValueChange: (value) => updateSetting('accessibility', 'largeText', value),
-    },
-    {
-      id: 'high-contrast',
-      title: 'High Contrast',
-      subtitle: 'Increase color contrast',
-      icon: 'eye',
-      color: '#8B5CF6',
-      type: 'toggle',
-      value: settings.accessibility.highContrast,
-      onValueChange: (value) => updateSetting('accessibility', 'highContrast', value),
-    },
-    {
-      id: 'reduced-motion',
-      title: 'Reduced Motion',
-      subtitle: 'Minimize animations and transitions',
-      icon: 'minimize-2',
-      color: '#F97316',
-      type: 'toggle',
-      value: settings.accessibility.reducedMotion,
-      onValueChange: (value) => updateSetting('accessibility', 'reducedMotion', value),
-    },
-  ];
-
-  // Advanced Settings
-  const advancedSettings: SettingItem[] = [
-    {
-      id: 'clear-cache',
-      title: 'Clear Cache',
-      subtitle: 'Free up storage space',
-      icon: 'trash-2',
-      color: '#6B7280',
-      type: 'action',
-      action: handleClearCache,
-    },
-    {
-      id: 'reset-settings',
-      title: 'Reset Settings',
-      subtitle: 'Restore all settings to defaults',
-      icon: 'rotate-ccw',
-      color: '#F59E0B',
-      type: 'action',
-      action: handleResetSettings,
-    },
-  ];
-
-  const SettingItemComponent = ({ item }: { item: SettingItem }) => {
-    if (item.type === 'toggle') {
-      return (
-        <View style={styles.settingItem}>
-          <View style={[styles.settingIcon, { backgroundColor: item.color + '15' }]}>
-            <Icon name={item.icon as any} type="Feather" size={20} color={item.color} />
+  const renderSettingItem = (item: SettingItem, index: number) => (
+    <Animated.View
+      key={item.id}
+      entering={FadeInDown.delay(100 + index * 30)}
+      style={styles.settingCard}
+    >
+      <TouchableOpacity
+        style={[
+          styles.settingContent,
+          item.type === 'toggle' && styles.settingContentToggle
+        ]}
+        onPress={item.type === 'toggle' ? undefined : item.onPress}
+        activeOpacity={item.type === 'toggle' ? 1 : 0.7}
+        disabled={item.type === 'toggle'}
+      >
+        <View style={styles.settingLeft}>
+          <View style={[
+            styles.settingIcon,
+            { backgroundColor: `${item.color}15` }
+          ]}>
+            <Feather name={item.icon as any} size={20} color={item.color} />
           </View>
-          <View style={styles.settingContent}>
+          
+          <View style={styles.settingInfo}>
             <Text style={styles.settingTitle}>{item.title}</Text>
             <Text style={styles.settingSubtitle}>{item.subtitle}</Text>
           </View>
-          <Switch
-            value={item.value}
-            onValueChange={item.onValueChange}
-            trackColor={{ false: Colors.border, true: item.color + '40' }}
-            thumbColor={item.value ? item.color : Colors.textSecondary}
-          />
         </View>
-      );
-    }
-
-    return (
-      <TouchableOpacity 
-        style={styles.settingItem} 
-        onPress={item.action}
-        activeOpacity={0.7}
-      >
-        <View style={[styles.settingIcon, { backgroundColor: item.color + '15' }]}>
-          <Icon name={item.icon as any} type="Feather" size={20} color={item.color} />
+        
+        <View style={styles.settingRight}>
+          {item.type === 'toggle' ? (
+            <Switch
+              value={item.value}
+              onValueChange={item.onToggle}
+              trackColor={{ 
+                false: '#F1F5F9', 
+                true: `${Colors.primary}30` 
+              }}
+              thumbColor={item.value ? Colors.primary : '#ffffff'}
+              ios_backgroundColor="#F1F5F9"
+            />
+          ) : (
+            <Feather name="chevron-right" size={20} color={Colors.textTertiary} />
+          )}
         </View>
-        <View style={styles.settingContent}>
-          <Text style={styles.settingTitle}>{item.title}</Text>
-          <Text style={styles.settingSubtitle}>{item.subtitle}</Text>
-        </View>
-        <Icon name="chevron-right" type="Feather" size={20} color={Colors.textSecondary} />
       </TouchableOpacity>
-    );
-  };
-
-  const SettingSection = ({ title, items, delay = 0 }: { title: string; items: SettingItem[]; delay?: number }) => (
-    <Animated.View
-      style={[
-        styles.section,
-        {
-          opacity: fadeAnim,
-          transform: [{ 
-            translateY: slideAnim.interpolate({
-              inputRange: [0, 30],
-              outputRange: [0, 30 + delay],
-            }) 
-          }],
-        },
-      ]}
-    >
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionContent}>
-        {items.map((item, index) => (
-          <View key={item.id}>
-            <SettingItemComponent item={item} />
-            {index < items.length - 1 && <View style={styles.separator} />}
-          </View>
-        ))}
-      </View>
     </Animated.View>
   );
 
-  const DangerZone = () => (
-    <Animated.View
-      style={[
-        styles.section,
-        styles.dangerSection,
-        {
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        },
-      ]}
-    >
-      <Text style={styles.sectionTitle}>Account Actions</Text>
-      <View style={styles.sectionContent}>
-        <TouchableOpacity style={styles.dangerItem} onPress={handleLogout}>
-          <View style={styles.dangerIcon}>
-            <Icon name="log-out" type="Feather" size={20} color="#EF4444" />
-          </View>
-          <View style={styles.settingContent}>
-            <Text style={styles.dangerTitle}>Sign Out</Text>
-            <Text style={styles.dangerSubtitle}>Sign out from the app</Text>
-          </View>
-        </TouchableOpacity>
-        
-        <View style={styles.separator} />
-        
-        <TouchableOpacity style={styles.dangerItem} onPress={handleDeleteAccount}>
-          <View style={styles.dangerIcon}>
-            <Icon name="trash-2" type="Feather" size={20} color="#EF4444" />
-          </View>
-          <View style={styles.settingContent}>
-            <Text style={styles.dangerTitle}>Delete Account</Text>
-            <Text style={styles.dangerSubtitle}>Permanently delete your account and data</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
+  const renderSection = (section: SettingsSection, sectionIndex: number) => (
+    <View key={section.id} style={styles.section}>
+      <Animated.View
+        entering={FadeInDown.delay(50 + sectionIndex * 100)}
+        style={styles.sectionHeader}
+      >
+        <Text style={styles.sectionTitle}>{section.title}</Text>
+      </Animated.View>
+      
+      {section.items.map((item, index) => renderSettingItem(item, index))}
+    </View>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
       {/* Header */}
-      <Animated.View
-        style={[
-          styles.header,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          },
-        ]}
+      <LinearGradient
+        colors={[Colors.primary, '#667eea', '#764ba2']}
+        locations={[0, 0.6, 1]}
+        style={styles.header}
       >
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-left" type="Feather" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={styles.headerSpacer} />
-      </Animated.View>
-
-      <ScrollView 
-        style={styles.scrollView} 
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={[Colors.primary]}
-            tintColor={Colors.primary}
-          />
-        }
-      >
-        <SettingSection title="Notifications" items={notificationSettings} />
-        <SettingSection title="Privacy & Security" items={privacySettings} delay={10} />
-        <SettingSection title="App Preferences" items={appPreferences} delay={20} />
-        <SettingSection title="Accessibility" items={accessibilitySettings} delay={30} />
-        <SettingSection title="Advanced" items={advancedSettings} delay={40} />
-        
-        <DangerZone />
-        
-        {/* App Version */}
-        <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>iBox App Version 1.0.0</Text>
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle}>App</Text>
+            <Text style={styles.headerTitleHighlight}>Settings</Text>
+          </View>
+          
+          <View style={styles.headerSpacer} />
         </View>
+      </LinearGradient>
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.contentContainer}
+      >
+        <Animated.View style={containerStyle}>
+          {settingsSections.map((section, index) => renderSection(section, index))}
+          
+          {/* App Version */}
+          <Animated.View
+            entering={FadeInDown.delay(800)}
+            style={styles.versionContainer}
+          >
+            <Text style={styles.versionText}>iBox Driver v1.0.0</Text>
+            <Text style={styles.versionSubtext}>© 2024 iBox Delivery</Text>
+          </Animated.View>
+        </Animated.View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#F8FAFC',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    paddingTop: STATUS_BAR_HEIGHT,
+    paddingBottom: 20,
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+  },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: 'white',
+    marginRight: 6,
+  },
+  headerTitleHighlight: {
+    fontSize: 24,
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
+    color: 'white',
   },
   headerSpacer: {
     width: 40,
   },
-  scrollView: {
+  content: {
     flex: 1,
   },
-  section: {
+  contentContainer: {
     paddingHorizontal: 20,
-    paddingTop: 32,
+    paddingTop: 16,
+    paddingBottom: 32,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+  section: {
+    marginBottom: 32,
+  },
+  sectionHeader: {
     marginBottom: 16,
   },
-  sectionContent: {
-    backgroundColor: Colors.white,
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.textPrimary,
+  },
+  settingCard: {
+    backgroundColor: 'white',
     borderRadius: 16,
-    overflow: 'hidden',
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  settingIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   settingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+  },
+  settingContentToggle: {
+    paddingVertical: 16,
+  },
+  settingLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  settingInfo: {
     flex: 1,
   },
   settingTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
     marginBottom: 2,
   },
   settingSubtitle: {
     fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
     color: Colors.textSecondary,
     lineHeight: 20,
   },
-  separator: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-    marginLeft: 68,
-  },
-  dangerSection: {
-    paddingBottom: 32,
-  },
-  dangerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  dangerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    backgroundColor: '#EF444415',
-  },
-  dangerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#EF4444',
-    marginBottom: 2,
-  },
-  dangerSubtitle: {
-    fontSize: 14,
-    color: '#EF4444',
-    opacity: 0.8,
+  settingRight: {
+    marginLeft: 16,
   },
   versionContainer: {
     alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: 20,
+    paddingVertical: 24,
   },
   versionText: {
-    fontSize: 14,
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textSecondary,
-    fontWeight: '500',
+    marginBottom: 4,
+  },
+  versionSubtext: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textTertiary,
   },
 });
 

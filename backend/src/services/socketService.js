@@ -383,6 +383,70 @@ class SocketService {
       console.error('Error emitting system-wide:', error);
     }
   }
+
+  // Driver-specific methods
+  
+  // Update driver availability status
+  updateDriverAvailability(driverId, isOnline, location = null) {
+    try {
+      const statusData = {
+        driverId,
+        isOnline,
+        location,
+        timestamp: new Date().toISOString()
+      };
+
+      // Notify the driver
+      this.socketManager.notifyUser(driverId, 'availability_updated', statusData);
+      
+      // Notify relevant customers/orders if driver goes offline
+      if (!isOnline) {
+        this.socketManager.broadcastToUserType('customer', 'driver_availability_changed', {
+          driverId,
+          isOnline: false
+        });
+      }
+
+      console.log(`📍 Driver ${driverId} availability updated: ${isOnline ? 'online' : 'offline'}`);
+    } catch (error) {
+      console.error('Error updating driver availability:', error);
+    }
+  }
+
+  // Broadcast driver location to tracking orders
+  broadcastDriverLocation(orderId, locationData) {
+    try {
+      // Emit to specific order room
+      this.socketManager.emitToRoom(`order:${orderId}`, 'driver_location_update', {
+        orderId,
+        ...locationData,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log(`📍 Location broadcast for order ${orderId}`);
+    } catch (error) {
+      console.error('Error broadcasting driver location:', error);
+    }
+  }
+
+  // Notify order status update
+  notifyOrderStatusUpdate(orderId, status, location = null) {
+    try {
+      const updateData = {
+        orderId,
+        status,
+        location,
+        timestamp: new Date().toISOString()
+      };
+
+      // Emit to specific order room
+      this.socketManager.emitToRoom(`order:${orderId}`, 'order_status_update', updateData);
+
+      console.log(`📋 Status update broadcast for order ${orderId}: ${status}`);
+    } catch (error) {
+      console.error('Error notifying order status update:', error);
+    }
+  }
 }
 
 // Create singleton instance

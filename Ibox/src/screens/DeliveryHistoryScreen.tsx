@@ -1,368 +1,406 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
   ScrollView,
+  RefreshControl,
+  TouchableOpacity,
+  Dimensions,
   Platform,
-  Modal,
+  StatusBar,
+  ActivityIndicator,
+  FlatList,
 } from 'react-native';
-import { Text, Icon } from '../ui';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withDelay,
+  FadeInDown,
+} from 'react-native-reanimated';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Colors } from '../config/colors';
+import { Fonts } from '../config/fonts';
+import api from '../services/api';
+import * as Haptics from 'expo-haptics';
 
-interface DeliveryHistoryScreenProps {
-  navigation: any;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 0) + 20;
+
+interface DeliveryHistoryItem {
+  id: string;
+  orderId: string;
+  customerName: string;
+  serviceType: 'express' | 'standard' | 'moving';
+  pickupAddress: string;
+  deliveryAddress: string;
+  completedAt: string;
+  earnings: number;
+  distance: string;
+  duration: string;
+  rating?: number;
+  tip?: number;
+  status: 'completed' | 'cancelled';
 }
 
-const DeliveryHistoryScreen: React.FC<DeliveryHistoryScreenProps> = ({ navigation }) => {
-  const [selectedFilter, setSelectedFilter] = useState('all');
-  const [showFilterModal, setShowFilterModal] = useState(false);
+const DeliveryHistoryScreen: React.FC = () => {
+  const navigation = useNavigation();
+  const [deliveries, setDeliveries] = useState<DeliveryHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const filters = [
-    { id: 'all', label: 'All Deliveries' },
-    { id: 'completed', label: 'Completed' },
-    { id: 'cancelled', label: 'Cancelled' },
-    { id: 'express', label: 'Express' },
-    { id: 'standard', label: 'Standard' },
-  ];
+  // Animation values
+  const fadeAnim = useSharedValue(0);
+  const slideAnim = useSharedValue(30);
 
-  const deliveries = [
-    {
-      id: '#D2024001',
-      date: 'Today, 2:30 PM',
-      type: 'Express',
-      from: '1234 Rue Sainte-Catherine',
-      to: '5678 Boulevard René-Lévesque',
-      distance: '12.3 km',
-      duration: '45 min',
-      earnings: '$24.50',
-      status: 'completed',
-      rating: 5,
-      customer: 'Sarah Johnson',
-    },
-    {
-      id: '#D2024002',
-      date: 'Today, 11:15 AM',
-      type: 'Standard',
-      from: '789 Avenue du Parc',
-      to: '321 Rue Sherbrooke',
-      distance: '8.7 km',
-      duration: '32 min',
-      earnings: '$18.75',
-      status: 'completed',
-      rating: 4,
-      customer: 'Mike Chen',
-    },
-    {
-      id: '#D2024003',
-      date: 'Yesterday, 4:45 PM',
-      type: 'Express',
-      from: '456 Rue Saint-Denis',
-      to: '987 Avenue Mont-Royal',
-      distance: '15.2 km',
-      duration: '52 min',
-      earnings: '$28.90',
-      status: 'completed',
-      rating: 5,
-      customer: 'Emma Wilson',
-    },
-    {
-      id: '#D2024004',
-      date: 'Yesterday, 1:20 PM',
-      type: 'Moving',
-      from: '654 Rue de la Montagne',
-      to: '123 Boulevard Saint-Laurent',
-      distance: '6.8 km',
-      duration: '1h 15min',
-      earnings: '$45.00',
-      status: 'completed',
-      rating: 5,
-      customer: 'David Brown',
-    },
-    {
-      id: '#D2024005',
-      date: 'Dec 1, 3:10 PM',
-      type: 'Standard',
-      from: '789 Rue Crescent',
-      to: '456 Avenue McGill College',
-      distance: '4.2 km',
-      duration: '28 min',
-      earnings: '$15.25',
-      status: 'cancelled',
-      rating: null,
-      customer: 'Lisa Garcia',
-    },
-  ];
+  useEffect(() => {
+    // Initial animations
+    fadeAnim.value = withDelay(200, withTiming(1, { duration: 600 }));
+    slideAnim.value = withDelay(200, withSpring(0, { damping: 15, stiffness: 100 }));
+  }, []);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return '#10B981';
-      case 'cancelled':
-        return '#EF4444';
-      case 'in_progress':
-        return '#F59E0B';
-      default:
-        return Colors.textSecondary;
+  // Load data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadDeliveryHistory(1, true);
+    }, [])
+  );
+
+  const loadDeliveryHistory = async (pageNum: number = 1, reset: boolean = false) => {
+    try {
+      if (pageNum === 1) setLoading(true);
+      else setLoadingMore(true);
+      
+      console.log('📦 Loading delivery history, page:', pageNum);
+      
+      const response = await api.get(`/driver/deliveries/history?page=${pageNum}&limit=10`);
+      
+      if (response?.success && response?.data?.deliveries) {
+        const newDeliveries = response.data.deliveries;
+        
+        setDeliveries(prev => 
+          reset ? newDeliveries : [...prev, ...newDeliveries]
+        );
+        
+        setHasMore(response.data.hasMore || false);
+        setPage(pageNum);
+        
+        console.log('✅ Delivery history loaded:', newDeliveries.length, 'items');
+      }
+    } catch (error) {
+      console.error('❌ Error loading delivery history:', error);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  const getTypeColor = (type: string) => {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadDeliveryHistory(1, true);
+    setRefreshing(false);
+  }, []);
+
+  const loadMore = () => {
+    if (!loadingMore && hasMore) {
+      loadDeliveryHistory(page + 1, false);
+    }
+  };
+
+  // Animated styles
+  const containerStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: slideAnim.value }],
+  }));
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const getServiceTypeIcon = (type: string) => {
     switch (type) {
-      case 'Express':
-        return '#EF4444';
-      case 'Standard':
-        return '#3B82F6';
-      case 'Moving':
-        return '#8B5CF6';
-      default:
-        return Colors.primary;
+      case 'express': return 'zap';
+      case 'standard': return 'package';
+      case 'moving': return 'truck';
+      default: return 'package';
     }
   };
 
-  const renderStars = (rating: number | null) => {
-    if (!rating) return <Text style={styles.noRating}>N/A</Text>;
+  const getServiceTypeColor = (type: string) => {
+    switch (type) {
+      case 'express': return '#F59E0B';
+      case 'standard': return '#3B82F6';
+      case 'moving': return '#8B5CF6';
+      default: return '#6B7280';
+    }
+  };
+
+  const getServiceTypeName = (type: string) => {
+    switch (type) {
+      case 'express': return 'Express';
+      case 'standard': return 'Standard';
+      case 'moving': return 'Moving';
+      default: return type;
+    }
+  };
+
+  const renderDeliveryItem = ({ item, index }: { item: DeliveryHistoryItem; index: number }) => (
+    <Animated.View
+      entering={FadeInDown.delay(100 + index * 50)}
+      style={styles.deliveryCard}
+    >
+      <View style={styles.deliveryHeader}>
+        <View style={styles.deliveryServiceType}>
+          <View style={[
+            styles.serviceTypeIcon,
+            { backgroundColor: `${getServiceTypeColor(item.serviceType)}15` }
+          ]}>
+            <Feather 
+              name={getServiceTypeIcon(item.serviceType) as any} 
+              size={16} 
+              color={getServiceTypeColor(item.serviceType)} 
+            />
+          </View>
+          <Text style={styles.serviceTypeText}>
+            {getServiceTypeName(item.serviceType)}
+          </Text>
+        </View>
+        
+        <View style={styles.deliveryEarnings}>
+          <Text style={styles.earningsAmount}>
+            ${(item.earnings || 0).toFixed(2)}
+          </Text>
+          {item.tip && item.tip > 0 && (
+            <Text style={styles.tipAmount}>
+              +${(item.tip || 0).toFixed(2)} tip
+            </Text>
+          )}
+        </View>
+      </View>
+      
+      <View style={styles.deliveryDetails}>
+        <Text style={styles.customerName}>{item.customerName}</Text>
+        <Text style={styles.deliveryDate}>
+          {formatDate(item.completedAt)} at {formatTime(item.completedAt)}
+        </Text>
+      </View>
+
+      <View style={styles.addressContainer}>
+        <View style={styles.addressItem}>
+          <View style={styles.addressIcon}>
+            <Feather name="circle" size={8} color="#10B981" />
+          </View>
+          <Text style={styles.addressText} numberOfLines={1}>
+            {item.pickupAddress}
+          </Text>
+        </View>
+
+        <View style={styles.routeLine} />
+        
+        <View style={styles.addressItem}>
+          <View style={styles.addressIcon}>
+            <Feather name="map-pin" size={12} color="#EF4444" />
+          </View>
+          <Text style={styles.addressText} numberOfLines={1}>
+            {item.deliveryAddress}
+                      </Text>
+                    </View>
+                  </View>
+      
+      <View style={styles.deliveryFooter}>
+        <View style={styles.deliveryStats}>
+          <Text style={styles.statText}>
+            {item.distance} • {item.duration}
+                      </Text>
+                </View>
+
+        {item.rating && (
+          <View style={styles.ratingContainer}>
+            <Feather name="star" size={14} color="#FBBF24" />
+            <Text style={styles.ratingText}>{(item.rating || 0).toFixed(1)}</Text>
+          </View>
+        )}
+      </View>
+    </Animated.View>
+  );
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIcon}>
+        <Feather name="package" size={48} color={Colors.textTertiary} />
+      </View>
+      <Text style={styles.emptyTitle}>No Deliveries Yet</Text>
+      <Text style={styles.emptySubtitle}>
+        Your completed deliveries will appear here
+      </Text>
+        </View>
+  );
+
+  const renderFooter = () => {
+    if (!loadingMore) return null;
     
     return (
-      <View style={styles.starsContainer}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Icon
-            key={star}
-            name="star"
-            type="Feather"
-            size={12}
-            color={star <= rating ? '#F59E0B' : '#E5E7EB'}
-          />
-        ))}
+      <View style={styles.loadingFooter}>
+        <ActivityIndicator size="small" color={Colors.primary} />
       </View>
     );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.surface} />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-left" type="Feather" size={28} color={Colors.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Delivery History</Text>
-        <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilterModal(true)}>
-          <Icon name="filter" type="Feather" size={20} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Stats Summary */}
-        <View style={styles.statsSection}>
-          <View style={styles.statsGrid}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>127</Text>
-              <Text style={styles.statLabel}>Total Deliveries</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>4.9</Text>
-              <Text style={styles.statLabel}>Avg Rating</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>98%</Text>
-              <Text style={styles.statLabel}>Success Rate</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Deliveries List */}
-        <View style={styles.deliveriesSection}>
-          <Text style={styles.sectionTitle}>Recent Deliveries</Text>
-          <View style={styles.deliveriesList}>
-            {deliveries.map((delivery) => (
-              <TouchableOpacity key={delivery.id} style={styles.deliveryItem}>
-                <View style={styles.deliveryHeader}>
-                  <View style={styles.deliveryId}>
-                    <Text style={styles.deliveryIdText}>{delivery.id}</Text>
-                    <View style={[styles.typeBadge, { backgroundColor: getTypeColor(delivery.type) + '20' }]}>
-                      <Text style={[styles.typeBadgeText, { color: getTypeColor(delivery.type) }]}>
-                        {delivery.type}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.deliveryMeta}>
-                    <Text style={styles.deliveryDate}>{delivery.date}</Text>
-                    <View style={styles.deliveryStatus}>
-                      <View style={[styles.statusDot, { backgroundColor: getStatusColor(delivery.status) }]} />
-                      <Text style={[styles.statusText, { color: getStatusColor(delivery.status) }]}>
-                        {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1)}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.deliveryRoute}>
-                  <View style={styles.routePoint}>
-                    <View style={styles.fromDot} />
-                    <Text style={styles.routeAddress} numberOfLines={1}>{delivery.from}</Text>
-                  </View>
-                  <View style={styles.routeLine} />
-                  <View style={styles.routePoint}>
-                    <View style={styles.toDot} />
-                    <Text style={styles.routeAddress} numberOfLines={1}>{delivery.to}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.deliveryDetails}>
-                  <View style={styles.deliveryStats}>
-                    <View style={styles.statItem}>
-                      <Icon name="navigation" type="Feather" size={14} color={Colors.textSecondary} />
-                      <Text style={styles.statText}>{delivery.distance}</Text>
-                    </View>
-                    <View style={styles.statItem}>
-                      <Icon name="clock" type="Feather" size={14} color={Colors.textSecondary} />
-                      <Text style={styles.statText}>{delivery.duration}</Text>
-                    </View>
-                    <View style={styles.statItem}>
-                      <Icon name="user" type="Feather" size={14} color={Colors.textSecondary} />
-                      <Text style={styles.statText}>{delivery.customer}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.deliveryEarnings}>
-                    <Text style={styles.earningsAmount}>{delivery.earnings}</Text>
-                    {renderStars(delivery.rating)}
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.bottomPadding} />
-      </ScrollView>
-
-      {/* Filter Modal */}
-      <Modal
-        visible={showFilterModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
+      <LinearGradient
+        colors={[Colors.primary, '#667eea', '#764ba2']}
+        locations={[0, 0.6, 1]}
+        style={styles.header}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowFilterModal(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>Filter Deliveries</Text>
-              <TouchableOpacity onPress={() => setShowFilterModal(false)}>
-                <Text style={styles.modalDoneText}>Done</Text>
-              </TouchableOpacity>
+          
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle}>Delivery</Text>
+            <Text style={styles.headerTitleHighlight}>History</Text>
             </View>
             
-            <View style={styles.filterOptions}>
-              {filters.map((filter) => (
                 <TouchableOpacity
-                  key={filter.id}
-                  style={[
-                    styles.filterOption,
-                    selectedFilter === filter.id && styles.filterOptionActive
-                  ]}
-                  onPress={() => setSelectedFilter(filter.id)}
-                >
-                  <Text style={[
-                    styles.filterOptionText,
-                    selectedFilter === filter.id && styles.filterOptionTextActive
-                  ]}>
-                    {filter.label}
-                  </Text>
-                  {selectedFilter === filter.id && (
-                    <Icon name="check" type="Feather" size={16} color={Colors.primary} />
-                  )}
+            style={styles.headerButton}
+            onPress={onRefresh}
+            activeOpacity={0.7}
+          >
+            <Feather name="refresh-cw" size={22} color="white" />
                 </TouchableOpacity>
-              ))}
             </View>
+      </LinearGradient>
+
+      <Animated.View style={[styles.content, containerStyle]}>
+        {loading && deliveries.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>Loading delivery history...</Text>
           </View>
+        ) : (
+          <FlatList
+            data={deliveries}
+            renderItem={renderDeliveryItem}
+            keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={renderFooter}
+            ListEmptyComponent={renderEmptyState}
+            contentContainerStyle={deliveries.length === 0 ? styles.emptyContainer : undefined}
+          />
+        )}
+      </Animated.View>
         </View>
-      </Modal>
-    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F8FAFC',
   },
   header: {
+    paddingTop: STATUS_BAR_HEIGHT,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    paddingTop: Platform.OS === 'ios' ? 12 : 20,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
+    justifyContent: 'space-between',
   },
   backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    flex: 1,
-  },
-  filterButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  statsSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  statsGrid: {
+  headerTitleContainer: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
     alignItems: 'center',
   },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 4,
+  headerTitle: {
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: 'white',
+    marginRight: 6,
   },
-  statLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: 'center',
+  headerTitleHighlight: {
+    fontSize: 24,
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
+    color: 'white',
   },
-  deliveriesSection: {
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  sectionTitle: {
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textSecondary,
+    marginTop: 16,
+  },
+  deliveryCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
     marginBottom: 16,
-  },
-  deliveriesList: {
-    gap: 12,
-  },
-  deliveryItem: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
   deliveryHeader: {
     flexDirection: 'row',
@@ -370,174 +408,139 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  deliveryId: {
+  deliveryServiceType: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
-  deliveryIdText: {
+  serviceTypeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  serviceTypeText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
-  },
-  typeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  typeBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  deliveryMeta: {
-    alignItems: 'flex-end',
-  },
-  deliveryDate: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
-  deliveryStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  deliveryRoute: {
-    marginBottom: 12,
-  },
-  routePoint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  fromDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#10B981',
-  },
-  toDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-  },
-  routeLine: {
-    width: 1,
-    height: 12,
-    backgroundColor: Colors.border,
-    marginLeft: 4,
-    marginBottom: 4,
-  },
-  routeAddress: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    flex: 1,
-  },
-  deliveryDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  deliveryStats: {
-    flex: 1,
-    gap: 4,
-  },
-  statItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
   },
   deliveryEarnings: {
     alignItems: 'flex-end',
   },
   earningsAmount: {
+    fontSize: 18,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.textPrimary,
+  },
+  tipAmount: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#10B981',
+  },
+  deliveryDetails: {
+    marginBottom: 16,
+  },
+  customerName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
     marginBottom: 4,
   },
-  starsContainer: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-  noRating: {
-    fontSize: 12,
+  deliveryDate: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
     color: Colors.textSecondary,
   },
-  bottomPadding: {
-    height: 40,
+  addressContainer: {
+    marginBottom: 16,
   },
-  modalOverlay: {
+  addressItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  addressIcon: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  addressText: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '70%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  modalCancelText: {
-    fontSize: 17,
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
     color: Colors.textSecondary,
   },
-  modalDoneText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.primary,
+  routeLine: {
+    width: 2,
+    height: 16,
+    backgroundColor: Colors.textTertiary,
+    marginLeft: 9,
+    marginBottom: 8,
+    opacity: 0.3,
   },
-  filterOptions: {
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+  deliveryFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
   },
-  filterOption: {
+  deliveryStats: {
+    flex: 1,
+  },
+  statText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textTertiary,
+  },
+  ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
   },
-  filterOptionActive: {
-    backgroundColor: Colors.primary + '05',
-  },
-  filterOptionText: {
-    fontSize: 16,
+  ratingText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textPrimary,
+    marginLeft: 4,
   },
-  filterOptionTextActive: {
-    color: Colors.primary,
-    fontWeight: '500',
+  loadingFooter: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });
 

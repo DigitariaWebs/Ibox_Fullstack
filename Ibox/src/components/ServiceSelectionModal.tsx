@@ -179,8 +179,8 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
             runOnJS(closeModal)();
           } else {
             runOnJS(collapseToCompact)();
-          }
-        } else {
+      }
+    } else {
           dragY.value = withSpring(0);
         }
       }
@@ -295,12 +295,12 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
               backdropStyle,
             ]}
           >
-            <TouchableOpacity
+        <TouchableOpacity 
               style={{ flex: 1 }}
-              activeOpacity={1}
+          activeOpacity={1}
               onPress={closeModal}
             />
-          </Animated.View>
+      </Animated.View>
 
           {/* Blur View */}
           <Animated.View
@@ -427,7 +427,7 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                         >
                           Service
                         </Text>
-                      </View>
+          </View>
                       <Text
                         style={{
                           fontSize: 13,
@@ -438,8 +438,8 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                       >
                         Select delivery type
                       </Text>
-                    </View>
-                  </View>
+        </View>
+          </View>
                 </Animated.View>
               )}
 
@@ -488,9 +488,9 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                     </View>
                   </Animated.View>
 
-                  {/* Destination Info */}
-                  {destination && (
-                    <Animated.View
+        {/* Destination Info */}
+        {destination && (
+          <Animated.View 
                       entering={FadeIn.delay(200)}
                       style={{
                         flexDirection: 'row',
@@ -517,7 +517,7 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                         }}
                       >
                         <Icon name="map-pin" type="Feather" size={16} color={Colors.primary} />
-                      </View>
+            </View>
                       <Text
                         style={{
                           fontSize: 14,
@@ -527,12 +527,12 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                         }}
                         numberOfLines={1}
                       >
-                        {destination}
-                      </Text>
-                    </Animated.View>
-                  )}
+              {destination}
+            </Text>
+          </Animated.View>
+        )}
 
-                  {/* Services List */}
+        {/* Services List */}
                   <ScrollView
                     style={{ flex: 1 }}
                     contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 }}
@@ -551,12 +551,12 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                         Available Services
                       </Text>
 
-                      {services.map((service, index) => (
+            {services.map((service, index) => (
                         <Animated.View
                           key={service.id}
                           entering={FadeIn.delay(300 + index * 50)}
                         >
-                          <TouchableOpacity
+              <TouchableOpacity
                             style={{
                               flexDirection: 'row',
                               alignItems: 'center',
@@ -568,9 +568,9 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                               borderWidth: 1,
                               borderColor: selectedServiceId === service.id ? `${service.color}40` : '#E5E5E5',
                             }}
-                            onPress={() => handleServiceSelect(service.id)}
-                            activeOpacity={0.7}
-                          >
+                onPress={() => handleServiceSelect(service.id)}
+                activeOpacity={0.7}
+              >
                             <View
                               style={{
                                 width: 44,
@@ -582,8 +582,8 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                                 marginRight: 14,
                               }}
                             >
-                              {renderIcon(service)}
-                            </View>
+                    {renderIcon(service)}
+                  </View>
 
                             <View style={{ flex: 1 }}>
                               <Text
@@ -606,8 +606,8 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                               >
                                 {service.description}
                               </Text>
-                            </View>
-
+                </View>
+                
                             <View style={{ alignItems: 'flex-end' }}>
                               <Text
                                 style={{
@@ -628,11 +628,11 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                               >
                                 {service.estimatedTime}
                               </Text>
-                            </View>
-                          </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
                         </Animated.View>
-                      ))}
-                    </Animated.View>
+            ))}
+      </Animated.View>
 
                     {/* Reset Button */}
                     {onReset && (
@@ -642,10 +642,10 @@ const ServiceSelectionModal: React.FC<ServiceSelectionModalProps> = ({
                       >
                         <TouchableOpacity
                           style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
                             backgroundColor: '#F0F0F0',
                             borderRadius: 12,
                             gap: 8,

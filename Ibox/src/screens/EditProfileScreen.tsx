@@ -18,7 +18,7 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '../config/colors';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
-import PhoneNumberModal from '../components/PhoneNumberModal';
+import ModernPhoneInput from '../components/ModernPhoneInput';
 
 interface EditableUserProfile {
   firstName: string;
@@ -55,8 +55,6 @@ const EditProfileScreen: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Modal states
-  const [phoneModalVisible, setPhoneModalVisible] = useState(false);
 
   // Form validation states
   const [errors, setErrors] = useState<{[key: string]: string}>({});
@@ -478,25 +476,20 @@ const EditProfileScreen: React.FC = () => {
             'Enter last name'
           )}
 
-          {/* Phone Number Button */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Phone Number</Text>
-            <TouchableOpacity
-              style={[styles.phoneButton, errors.phone && styles.phoneButtonError]}
-              onPress={() => setPhoneModalVisible(true)}
-            >
-              <Text style={[
-                styles.phoneButtonText,
-                !profile.phone && styles.phoneButtonPlaceholder
-              ]}>
-                {profile.phone || 'Tap to enter phone number'}
-              </Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
-            </TouchableOpacity>
-            {errors.phone && (
-              <Text style={styles.errorText}>{errors.phone}</Text>
-            )}
-          </View>
+          {/* Phone Number Input */}
+          <ModernPhoneInput
+            label="Phone Number"
+            value={profile.phone}
+            onChangeText={(phone) => updateProfile('phone', phone)}
+            onFocus={() => {
+              if (errors.phone) {
+                setErrors(prev => ({ ...prev, phone: '' }));
+              }
+            }}
+            error={errors.phone}
+            isRequired={true}
+            containerStyle={styles.inputGroup}
+          />
 
           {/* Language Selection */}
           <View style={styles.inputGroup}>
@@ -587,16 +580,6 @@ const EditProfileScreen: React.FC = () => {
         </View>
       </ScrollView>
 
-      {/* Phone Number Modal */}
-      <PhoneNumberModal
-        visible={phoneModalVisible}
-        onClose={() => setPhoneModalVisible(false)}
-        onSave={(phoneNumber) => {
-          updateProfile('phone', phoneNumber);
-          setPhoneModalVisible(false);
-        }}
-        initialValue={profile?.phone || ''}
-      />
     </SafeAreaView>
   );
 };

@@ -1,576 +1,809 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
   ScrollView,
+  RefreshControl,
+  TouchableOpacity,
+  Dimensions,
   Platform,
-  Alert,
+  StatusBar,
   TextInput,
-  ImageBackground,
+  Alert,
+  Image,
 } from 'react-native';
-import { Text, Icon } from '../ui';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withDelay,
+  FadeInDown,
+} from 'react-native-reanimated';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors } from '../config/colors';
+import { Fonts } from '../config/fonts';
+import api from '../services/api';
+import * as Haptics from 'expo-haptics';
 
-interface VehicleInfoScreenProps {
-  navigation: any;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 0) + 20;
+
+interface VehicleInfo {
+  id: string;
+  make: string;
+  model: string;
+  year: string;
+  color: string;
+  licensePlate: string;
+  type: 'car' | 'motorcycle' | 'bicycle' | 'truck' | 'van';
+  photos: string[];
+  verified: boolean;
+  insurance: {
+    company: string;
+    policyNumber: string;
+    expiryDate: string;
+  };
 }
 
-const VehicleInfoScreen: React.FC<VehicleInfoScreenProps> = ({ navigation }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [vehicleData, setVehicleData] = useState({
-    make: 'Mercedes',
-    model: 'Sprinter',
-    year: '2021',
-    plateNumber: 'MTL-4582',
-    color: 'White',
-    capacity: '3.5 tons',
-    dimensions: '6.1m × 2.4m × 2.7m',
-    fuelType: 'Diesel',
-    insurance: 'Active',
-    registration: 'Valid until Dec 2024',
-  });
+const VehicleInfoScreen: React.FC = () => {
+  const navigation = useNavigation();
+  const [vehicleInfo, setVehicleInfo] = useState<VehicleInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [formData, setFormData] = useState<Partial<VehicleInfo>>({});
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    Alert.alert('Success', 'Vehicle information updated successfully!');
-    setIsEditing(false);
+  // Animation values
+  const fadeAnim = useSharedValue(0);
+  const slideAnim = useSharedValue(30);
+
+  useEffect(() => {
+    // Initial animations
+    fadeAnim.value = withDelay(200, withTiming(1, { duration: 600 }));
+    slideAnim.value = withDelay(200, withSpring(0, { damping: 15, stiffness: 100 }));
+  }, []);
+
+  // Load data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadVehicleInfo();
+    }, [])
+  );
+
+  const loadVehicleInfo = async () => {
+    try {
+      setLoading(true);
+      console.log('🚗 Loading vehicle information...');
+      
+      const response = await api.get('/driver/vehicle');
+      
+      if (response?.success && response?.data) {
+        setVehicleInfo(response.data);
+        setFormData(response.data);
+        console.log('✅ Vehicle info loaded:', response.data);
+      }
+    } catch (error) {
+      console.error('❌ Error loading vehicle info:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAddPhoto = () => {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadVehicleInfo();
+    setRefreshing(false);
+  }, []);
+
+  const handleEdit = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditing(true);
+  };
+
+  const handleCancel = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setFormData(vehicleInfo || {});
+    setEditing(false);
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      console.log('💾 Saving vehicle information...');
+      
+      const response = await api.put('/driver/vehicle', formData);
+      
+      if (response?.success) {
+        setVehicleInfo({ ...vehicleInfo, ...formData } as VehicleInfo);
+        setEditing(false);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Success', 'Vehicle information updated successfully');
+      }
+    } catch (error: any) {
+      console.error('❌ Error saving vehicle info:', error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Error', error?.message || 'Failed to update vehicle information');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddPhoto = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     Alert.alert(
       'Add Vehicle Photo',
-      'Choose an option',
+      'Choose how you want to add a photo of your vehicle',
       [
-        { text: 'Camera', onPress: () => console.log('Camera selected') },
-        { text: 'Photo Library', onPress: () => console.log('Library selected') },
         { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: takePhoto },
+        { text: 'Choose from Gallery', onPress: pickFromGallery },
       ]
     );
   };
 
-  const documents = [
-    {
-      id: 1,
-      title: 'Vehicle Registration',
-      status: 'Valid',
-      expiry: 'Dec 2024',
-      icon: 'file-text',
-      color: '#10B981',
-    },
-    {
-      id: 2,
-      title: 'Insurance Certificate',
-      status: 'Active',
-      expiry: 'Mar 2025',
-      icon: 'shield',
-      color: '#3B82F6',
-    },
-    {
-      id: 3,
-      title: 'Safety Inspection',
-      status: 'Valid',
-      expiry: 'Jun 2024',
-      icon: 'check-circle',
-      color: '#F59E0B',
-    },
-    {
-      id: 4,
-      title: 'Commercial License',
-      status: 'Active',
-      expiry: 'Sep 2025',
-      icon: 'award',
-      color: '#8B5CF6',
-    },
+  const takePhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Camera permission is required to take photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadPhoto(result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  const pickFromGallery = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Photo library permission is required');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadPhoto(result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Error picking from gallery:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const uploadPhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    try {
+      console.log('📤 Uploading vehicle photo...');
+
+      const formData = new FormData();
+      formData.append('vehiclePhoto', {
+        uri: asset.uri,
+        type: 'image/jpeg',
+        name: 'vehicle.jpg',
+      } as any);
+
+      const response = await api.post('/driver/vehicle/photo', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response?.success) {
+        console.log('✅ Photo uploaded successfully');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await loadVehicleInfo(); // Refresh the data
+      }
+    } catch (error: any) {
+      console.error('❌ Error uploading photo:', error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Upload Failed', 'Failed to upload photo. Please try again.');
+    }
+  };
+
+  // Animated styles
+  const containerStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: slideAnim.value }],
+  }));
+
+  const vehicleTypes = [
+    { id: 'car', name: 'Car', icon: 'car' },
+    { id: 'motorcycle', name: 'Motorcycle', icon: 'zap' },
+    { id: 'bicycle', name: 'Bicycle', icon: 'disc' },
+    { id: 'truck', name: 'Truck', icon: 'truck' },
+    { id: 'van', name: 'Van', icon: 'package' },
   ];
 
-  const maintenanceHistory = [
-    {
-      date: 'Nov 15, 2023',
-      type: 'Oil Change',
-      mileage: '45,320 km',
-      cost: '$85.00',
-      status: 'completed',
-    },
-    {
-      date: 'Oct 2, 2023',
-      type: 'Tire Rotation',
-      mileage: '44,180 km',
-      cost: '$60.00',
-      status: 'completed',
-    },
-    {
-      date: 'Sep 8, 2023',
-      type: 'Brake Inspection',
-      mileage: '43,450 km',
-      cost: '$120.00',
-      status: 'completed',
-    },
-  ];
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.surface} />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-left" type="Feather" size={28} color={Colors.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Vehicle Information</Text>
+  const renderVehiclePhotos = () => (
+    <Animated.View
+      entering={FadeInDown.delay(100)}
+      style={styles.photoSection}
+    >
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Vehicle Photos</Text>
         <TouchableOpacity 
-          style={styles.editButton} 
-          onPress={() => isEditing ? handleSave() : setIsEditing(true)}
+          style={styles.addPhotoButton}
+          onPress={handleAddPhoto}
+          activeOpacity={0.7}
         >
-          <Icon 
-            name={isEditing ? "check" : "edit-2"} 
-            type="Feather" 
-            size={20} 
-            color={Colors.primary} 
-          />
+          <Feather name="camera" size={18} color={Colors.primary} />
+          <Text style={styles.addPhotoText}>Add Photo</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Vehicle Photo */}
-        <View style={styles.photoSection}>
-          <ImageBackground
-            source={{ uri: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=200&fit=crop' }}
-            style={styles.vehiclePhoto}
-            imageStyle={styles.vehiclePhotoStyle}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
+        {vehicleInfo?.photos?.map((photo, index) => (
+          <View key={index} style={styles.photoContainer}>
+            <Image source={{ uri: photo }} style={styles.vehiclePhoto} />
+          </View>
+        ))}
+        
+        {(!vehicleInfo?.photos || vehicleInfo.photos.length === 0) && (
+          <View style={styles.noPhotosContainer}>
+            <Feather name="camera" size={32} color={Colors.textTertiary} />
+            <Text style={styles.noPhotosText}>No photos yet</Text>
+          </View>
+        )}
+      </ScrollView>
+    </Animated.View>
+  );
+
+  const renderVehicleDetails = () => (
+    <Animated.View
+      entering={FadeInDown.delay(200)}
+      style={styles.detailsSection}
+    >
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>
+          Vehicle <Text style={styles.sectionTitleHighlight}>Details</Text>
+        </Text>
+        {!editing ? (
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={handleEdit}
+            activeOpacity={0.7}
           >
-            <TouchableOpacity style={styles.photoOverlay} onPress={handleAddPhoto}>
-              <Icon name="camera" type="Feather" size={24} color={Colors.white} />
-              <Text style={styles.photoOverlayText}>Update Photo</Text>
+            <Feather name="edit-2" size={18} color={Colors.primary} />
+            <Text style={styles.editButtonText}>Edit</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.editActions}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={handleCancel}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
-          </ImageBackground>
+            <TouchableOpacity
+              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.saveButtonText}>
+                {saving ? 'Saving...' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
         </View>
 
-        {/* Vehicle Details */}
-        <View style={styles.detailsSection}>
-          <Text style={styles.sectionTitle}>Vehicle Details</Text>
-          <View style={styles.detailsCard}>
+      <View style={styles.detailsGrid}>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Make & Model</Text>
-              {isEditing ? (
-                <View style={styles.editRow}>
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Make</Text>
+            {editing ? (
                   <TextInput
-                    style={[styles.detailInput, { flex: 1, marginRight: 8 }]}
-                    value={vehicleData.make}
-                    onChangeText={(text) => setVehicleData({...vehicleData, make: text})}
-                  />
-                  <TextInput
-                    style={[styles.detailInput, { flex: 1 }]}
-                    value={vehicleData.model}
-                    onChangeText={(text) => setVehicleData({...vehicleData, model: text})}
-                  />
-                </View>
-              ) : (
-                <Text style={styles.detailValue}>{vehicleData.make} {vehicleData.model}</Text>
+                style={styles.detailInput}
+                value={formData.make}
+                onChangeText={(text) => setFormData({ ...formData, make: text })}
+                placeholder="Enter make"
+              />
+            ) : (
+              <Text style={styles.detailValue}>{vehicleInfo?.make || 'Not specified'}</Text>
               )}
             </View>
 
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Year</Text>
-              {isEditing ? (
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Model</Text>
+            {editing ? (
                 <TextInput
                   style={styles.detailInput}
-                  value={vehicleData.year}
-                  onChangeText={(text) => setVehicleData({...vehicleData, year: text})}
+                value={formData.model}
+                onChangeText={(text) => setFormData({ ...formData, model: text })}
+                placeholder="Enter model"
                 />
               ) : (
-                <Text style={styles.detailValue}>{vehicleData.year}</Text>
+              <Text style={styles.detailValue}>{vehicleInfo?.model || 'Not specified'}</Text>
               )}
+          </View>
             </View>
 
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>License Plate</Text>
-              {isEditing ? (
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Year</Text>
+            {editing ? (
                 <TextInput
                   style={styles.detailInput}
-                  value={vehicleData.plateNumber}
-                  onChangeText={(text) => setVehicleData({...vehicleData, plateNumber: text})}
+                value={formData.year}
+                onChangeText={(text) => setFormData({ ...formData, year: text })}
+                placeholder="Enter year"
+                keyboardType="numeric"
                 />
               ) : (
-                <Text style={styles.detailValue}>{vehicleData.plateNumber}</Text>
+              <Text style={styles.detailValue}>{vehicleInfo?.year || 'Not specified'}</Text>
               )}
             </View>
 
-            <View style={styles.detailRow}>
+          <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>Color</Text>
-              {isEditing ? (
+            {editing ? (
                 <TextInput
                   style={styles.detailInput}
-                  value={vehicleData.color}
-                  onChangeText={(text) => setVehicleData({...vehicleData, color: text})}
+                value={formData.color}
+                onChangeText={(text) => setFormData({ ...formData, color: text })}
+                placeholder="Enter color"
                 />
               ) : (
-                <Text style={styles.detailValue}>{vehicleData.color}</Text>
+              <Text style={styles.detailValue}>{vehicleInfo?.color || 'Not specified'}</Text>
               )}
             </View>
-
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Capacity</Text>
-              <Text style={styles.detailValue}>{vehicleData.capacity}</Text>
             </View>
 
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Dimensions</Text>
-              <Text style={styles.detailValue}>{vehicleData.dimensions}</Text>
+        <View style={styles.detailItem}>
+          <Text style={styles.detailLabel}>License Plate</Text>
+          {editing ? (
+            <TextInput
+              style={styles.detailInput}
+              value={formData.licensePlate}
+              onChangeText={(text) => setFormData({ ...formData, licensePlate: text.toUpperCase() })}
+              placeholder="Enter license plate"
+              autoCapitalize="characters"
+            />
+          ) : (
+            <Text style={styles.detailValue}>{vehicleInfo?.licensePlate || 'Not specified'}</Text>
+          )}
             </View>
 
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Fuel Type</Text>
-              <Text style={styles.detailValue}>{vehicleData.fuelType}</Text>
+        {editing && (
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Vehicle Type</Text>
+            <View style={styles.vehicleTypeSelector}>
+              {vehicleTypes.map((type) => (
+                <TouchableOpacity
+                  key={type.id}
+                  style={[
+                    styles.vehicleTypeButton,
+                    formData.type === type.id && styles.vehicleTypeButtonActive
+                  ]}
+                  onPress={() => setFormData({ ...formData, type: type.id as any })}
+                  activeOpacity={0.7}
+                >
+                  <Feather 
+                    name={type.icon as any} 
+                    size={16} 
+                    color={formData.type === type.id ? 'white' : Colors.textSecondary} 
+                  />
+                  <Text style={[
+                    styles.vehicleTypeButtonText,
+                    formData.type === type.id && styles.vehicleTypeButtonTextActive
+                  ]}>
+                    {type.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
+        )}
+      </View>
+    </Animated.View>
+  );
+
+  const renderVerificationStatus = () => (
+    <Animated.View
+      entering={FadeInDown.delay(300)}
+      style={styles.verificationSection}
+    >
+      <Text style={styles.sectionTitle}>Verification Status</Text>
+      
+      <View style={[
+        styles.verificationCard,
+        vehicleInfo?.verified ? styles.verificationCardVerified : styles.verificationCardPending
+      ]}>
+        <View style={styles.verificationIcon}>
+          <Feather 
+            name={vehicleInfo?.verified ? "shield-check" : "shield"} 
+            size={24} 
+            color={vehicleInfo?.verified ? "#10B981" : "#F59E0B"} 
+          />
         </View>
 
-        {/* Documents */}
-        <View style={styles.documentsSection}>
-          <Text style={styles.sectionTitle}>Documents & Licenses</Text>
-          <View style={styles.documentsList}>
-            {documents.map((document) => (
-              <TouchableOpacity key={document.id} style={styles.documentItem}>
-                <View style={[styles.documentIcon, { backgroundColor: document.color + '20' }]}>
-                  <Icon name={document.icon as any} type="Feather" size={20} color={document.color} />
-                </View>
-                <View style={styles.documentInfo}>
-                  <Text style={styles.documentTitle}>{document.title}</Text>
-                  <Text style={styles.documentExpiry}>Expires: {document.expiry}</Text>
-                </View>
-                <View style={styles.documentStatus}>
-                  <View style={[styles.statusBadge, { backgroundColor: document.color + '20' }]}>
-                    <Text style={[styles.statusText, { color: document.color }]}>
-                      {document.status}
+        <View style={styles.verificationContent}>
+          <Text style={styles.verificationTitle}>
+            {vehicleInfo?.verified ? 'Verified Vehicle' : 'Verification Pending'}
+          </Text>
+          <Text style={styles.verificationSubtitle}>
+            {vehicleInfo?.verified 
+              ? 'Your vehicle has been verified and approved for deliveries'
+              : 'Your vehicle information is being reviewed by our team'
+            }
                     </Text>
                   </View>
-                  <Icon name="chevron-right" type="Feather" size={16} color={Colors.textSecondary} />
                 </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+    </Animated.View>
+  );
 
-        {/* Maintenance History */}
-        <View style={styles.maintenanceSection}>
-          <Text style={styles.sectionTitle}>Maintenance History</Text>
-          <View style={styles.maintenanceList}>
-            {maintenanceHistory.map((maintenance, index) => (
-              <View key={index} style={styles.maintenanceItem}>
-                <View style={styles.maintenanceLeft}>
-                  <Text style={styles.maintenanceType}>{maintenance.type}</Text>
-                  <Text style={styles.maintenanceDate}>{maintenance.date}</Text>
-                  <Text style={styles.maintenanceMileage}>{maintenance.mileage}</Text>
-                </View>
-                <View style={styles.maintenanceRight}>
-                  <Text style={styles.maintenanceCost}>{maintenance.cost}</Text>
-                  <View style={styles.maintenanceStatus}>
-                    <View style={styles.statusDot} />
-                    <Text style={styles.maintenanceStatusText}>Completed</Text>
-                  </View>
-                </View>
-              </View>
-            ))}
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      
+      {/* Header */}
+      <LinearGradient
+        colors={[Colors.primary, '#667eea', '#764ba2']}
+        locations={[0, 0.6, 1]}
+        style={styles.header}
+      >
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+              </TouchableOpacity>
+          
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle}>Vehicle</Text>
+            <Text style={styles.headerTitleHighlight}>Information</Text>
           </View>
           
-          <TouchableOpacity style={styles.addMaintenanceButton}>
-            <Icon name="plus" type="Feather" size={16} color={Colors.primary} />
-            <Text style={styles.addMaintenanceText}>Add Maintenance Record</Text>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={onRefresh}
+            activeOpacity={0.7}
+          >
+            <Feather name="refresh-cw" size={22} color="white" />
           </TouchableOpacity>
         </View>
+      </LinearGradient>
 
-        {/* Quick Actions */}
-        <View style={styles.actionsSection}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsList}>
-            <TouchableOpacity style={styles.actionItem}>
-              <Icon name="calendar" type="Feather" size={20} color="#F59E0B" />
-              <Text style={styles.actionText}>Schedule Maintenance</Text>
-              <Icon name="chevron-right" type="Feather" size={16} color={Colors.textSecondary} />
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.actionItem}>
-              <Icon name="camera" type="Feather" size={20} color="#3B82F6" />
-              <Text style={styles.actionText}>Add Vehicle Photos</Text>
-              <Icon name="chevron-right" type="Feather" size={16} color={Colors.textSecondary} />
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.actionItem}>
-              <Icon name="upload" type="Feather" size={20} color="#10B981" />
-              <Text style={styles.actionText}>Upload Documents</Text>
-              <Icon name="chevron-right" type="Feather" size={16} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.bottomPadding} />
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <Animated.View style={containerStyle}>
+          {renderVehiclePhotos()}
+          {renderVehicleDetails()}
+          {renderVerificationStatus()}
+        </Animated.View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F8FAFC',
   },
   header: {
+    paddingTop: STATUS_BAR_HEIGHT,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    paddingTop: Platform.OS === 'ios' ? 12 : 20,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
+    justifyContent: 'space-between',
   },
   backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    flex: 1,
-  },
-  editButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  photoSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  vehiclePhoto: {
-    height: 200,
-    borderRadius: 12,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  vehiclePhotoStyle: {
-    borderRadius: 12,
-  },
-  photoOverlay: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    gap: 8,
-  },
-  photoOverlayText: {
-    color: Colors.white,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  detailsSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 16,
-  },
-  detailsCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    flex: 1,
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-    flex: 1,
-    textAlign: 'right',
-  },
-  detailInput: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-    backgroundColor: Colors.surface,
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    minWidth: 100,
-    textAlign: 'right',
-  },
-  editRow: {
-    flexDirection: 'row',
-    flex: 1,
-  },
-  documentsSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  documentsList: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  documentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-  },
-  documentIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  documentInfo: {
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: 'white',
+    marginRight: 6,
+  },
+  headerTitleHighlight: {
+    fontSize: 24,
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
+    color: 'white',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
     flex: 1,
-  },
-  documentTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  documentExpiry: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  documentStatus: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  maintenanceSection: {
     paddingHorizontal: 20,
-    marginBottom: 24,
   },
-  maintenanceList: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    marginBottom: 12,
+  
+  // Photo Section
+  photoSection: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  maintenanceItem: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-  },
-  maintenanceLeft: {
-    flex: 1,
-  },
-  maintenanceType: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  maintenanceDate: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 2,
-  },
-  maintenanceMileage: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  maintenanceRight: {
-    alignItems: 'flex-end',
-  },
-  maintenanceCost: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  maintenanceStatus: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    marginBottom: 16,
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.textPrimary,
   },
-  maintenanceStatusText: {
-    fontSize: 12,
-    color: '#10B981',
-    fontWeight: '500',
-  },
-  addMaintenanceButton: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    borderStyle: 'dashed',
-  },
-  addMaintenanceText: {
-    fontSize: 14,
-    fontWeight: '500',
+  sectionTitleHighlight: {
+    fontFamily: Fonts.PlayfairDisplay.Variable,
+    fontStyle: 'italic',
     color: Colors.primary,
   },
-  actionsSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  actionsList: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  actionItem: {
+  addPhotoButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-    gap: 12,
+    backgroundColor: `${Colors.primary}15`,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
-  actionText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.textPrimary,
+  addPhotoText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.primary,
+    marginLeft: 6,
+  },
+  photoScroll: {
+    flexDirection: 'row',
+  },
+  photoContainer: {
+    marginRight: 12,
+  },
+  vehiclePhoto: {
+    width: 120,
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+  },
+  noPhotosContainer: {
+    width: 120,
+    height: 90,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noPhotosText: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textTertiary,
+    marginTop: 4,
+  },
+  
+  // Details Section
+  detailsSection: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${Colors.primary}15`,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  editButtonText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.primary,
+    marginLeft: 6,
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textSecondary,
+  },
+  saveButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  saveButtonText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: 'white',
+  },
+  detailsGrid: {
+    gap: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  detailItem: {
     flex: 1,
   },
-  bottomPadding: {
-    height: 40,
+  detailLabel: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  detailValue: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textPrimary,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+  },
+  detailInput: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textPrimary,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+  },
+  vehicleTypeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  vehicleTypeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  vehicleTypeButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  vehicleTypeButtonText: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textSecondary,
+    marginLeft: 6,
+  },
+  vehicleTypeButtonTextActive: {
+    color: 'white',
+  },
+  
+  // Verification Section
+  verificationSection: {
+    marginBottom: 32,
+  },
+  verificationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  verificationCardVerified: {
+    borderLeftColor: '#10B981',
+  },
+  verificationCardPending: {
+    borderLeftColor: '#F59E0B',
+  },
+  verificationIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  verificationContent: {
+    flex: 1,
+  },
+  verificationTitle: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  verificationSubtitle: {
+    fontSize: 14,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textSecondary,
+    lineHeight: 20,
   },
 });
 

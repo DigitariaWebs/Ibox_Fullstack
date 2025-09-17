@@ -298,80 +298,66 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
         </Text>
       </View>
 
-      <View style={styles.instructionsContainer}>
-        <View style={styles.instructionsGrid}>
-          {instructionOptions.slice(0, 4).map((option, index) => (
-            <Animated.View
-              key={option.id}
-              entering={FadeInUp.delay(index * 50).springify()}
-              style={styles.instructionItemWrapper}
+      <ScrollView 
+        style={styles.instructionsListContainer}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.instructionsListContent}
+      >
+        {instructionOptions.map((option, index) => (
+          <Animated.View
+            key={option.id}
+            entering={FadeInUp.delay(index * 50).springify()}
+          >
+            <TouchableOpacity
+              style={[
+                styles.instructionListItem,
+                selectedInstructions.includes(option.id) && styles.instructionListItemSelected
+              ]}
+              onPress={() => toggleInstruction(option.id)}
+              activeOpacity={0.7}
             >
-              <TouchableOpacity
-                style={[
-                  styles.instructionItem,
-                  selectedInstructions.includes(option.id) && styles.instructionItemSelected
-                ]}
-                onPress={() => toggleInstruction(option.id)}
-                activeOpacity={0.8}
-              >
+              <View style={styles.instructionListLeft}>
                 <View style={[
-                  styles.instructionIcon,
-                  { backgroundColor: `${option.color}20` },
+                  styles.instructionListIcon,
+                  { backgroundColor: `${option.color}15` },
                   selectedInstructions.includes(option.id) && { backgroundColor: option.color }
                 ]}>
                   <Ionicons 
                     name={option.icon as any} 
-                    size={18} 
+                    size={22} 
                     color={selectedInstructions.includes(option.id) ? 'white' : option.color} 
                   />
                 </View>
-                <Text style={[
-                  styles.instructionLabel,
-                  selectedInstructions.includes(option.id) && styles.instructionLabelSelected
-                ]}>
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
-        </View>
-        
-        {/* Fifth item centered below */}
-        {instructionOptions[4] && (
-          <Animated.View
-            entering={FadeInUp.delay(200).springify()}
-            style={styles.instructionCenterWrapper}
-          >
-            <TouchableOpacity
-              style={[
-                styles.instructionItem,
-                styles.instructionItemCenter,
-                selectedInstructions.includes(instructionOptions[4].id) && styles.instructionItemSelected
-              ]}
-              onPress={() => toggleInstruction(instructionOptions[4].id)}
-              activeOpacity={0.8}
-            >
-              <View style={[
-                styles.instructionIcon,
-                { backgroundColor: `${instructionOptions[4].color}20` },
-                selectedInstructions.includes(instructionOptions[4].id) && { backgroundColor: instructionOptions[4].color }
-              ]}>
-                <Ionicons 
-                  name={instructionOptions[4].icon as any} 
-                  size={18} 
-                  color={selectedInstructions.includes(instructionOptions[4].id) ? 'white' : instructionOptions[4].color} 
-                />
+                
+                <View style={styles.instructionListTextContainer}>
+                  <Text style={[
+                    styles.instructionListLabel,
+                    selectedInstructions.includes(option.id) && styles.instructionListLabelSelected
+                  ]}>
+                    {option.label}
+                  </Text>
+                  <Text style={styles.instructionListDescription}>
+                    {option.id === 'fragile' && 'Extra care for delicate items'}
+                    {option.id === 'doorstep' && 'No direct contact delivery'}
+                    {option.id === 'photo' && 'Get photo proof of delivery'}
+                    {option.id === 'insurance' && 'Protection for valuable items'}
+                    {option.id === 'signature' && 'Recipient must sign for package'}
+                  </Text>
+                </View>
               </View>
-              <Text style={[
-                styles.instructionLabel,
-                selectedInstructions.includes(instructionOptions[4].id) && styles.instructionLabelSelected
+              
+              <View style={[
+                styles.instructionCheckbox,
+                selectedInstructions.includes(option.id) && styles.instructionCheckboxSelected
               ]}>
-                {instructionOptions[4].label}
-              </Text>
+                {selectedInstructions.includes(option.id) && (
+                  <Ionicons name="checkmark" size={16} color="white" />
+                )}
+              </View>
             </TouchableOpacity>
           </Animated.View>
-        )}
-      </View>
+        ))}
+      </ScrollView>
     </Animated.View>
     );
   };
@@ -443,29 +429,37 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
-      {/* Modern Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={handleBack}
-          activeOpacity={0.7}
-        >
-          <Icon name="arrow-left" type="Feather" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        
-        <View style={styles.headerTitle}>
-          <Text style={styles.headerTitleText}>
-            Express{' '}
-            <Text style={styles.headerTitleHighlight}>Delivery</Text>
-          </Text>
+      {/* Modern Header with Status Bar Background */}
+      <LinearGradient
+        colors={[Colors.primary, '#00A896']}
+        style={styles.headerWrapper}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.statusBarSpace} />
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={handleBack}
+            activeOpacity={0.7}
+          >
+            <Icon name="arrow-left" type="Feather" size={24} color="white" />
+          </TouchableOpacity>
+          
+          <View style={styles.headerTitle}>
+            <Text style={styles.headerTitleText}>
+              Express{' '}
+              <Text style={styles.headerTitleHighlight}>Delivery</Text>
+            </Text>
+          </View>
+          
+          <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+            <Icon name="x" type="Feather" size={24} color="white" />
+          </TouchableOpacity>
         </View>
-        
-        <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
-          <Icon name="x" type="Feather" size={24} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
+      </LinearGradient>
 
       {/* Progress Bar */}
       <View style={styles.progressContainer}>
@@ -548,22 +542,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FAFAFA',
   },
+  headerWrapper: {
+    // Extends gradient behind status bar
+  },
+  statusBarSpace: {
+    height: STATUS_BAR_HEIGHT,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: STATUS_BAR_HEIGHT + 10,
+    paddingTop: 10,
     paddingHorizontal: 20,
     paddingBottom: 15,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F8F8F8',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -571,6 +568,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -581,12 +579,12 @@ const styles = StyleSheet.create({
   headerTitleText: {
     fontSize: 20,
     fontFamily: Fonts.SFProDisplay.Medium,
-    color: Colors.textPrimary,
+    color: 'white',
   },
   headerTitleHighlight: {
     fontFamily: Fonts.PlayfairDisplay.Variable,
     fontStyle: 'italic',
-    color: Colors.primary,
+    color: 'white',
   },
   progressContainer: {
     paddingHorizontal: 20,
@@ -783,6 +781,81 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
+  // List view styles for instructions
+  instructionsListContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  instructionsListContent: {
+    paddingTop: 10,
+    paddingBottom: 20,
+  },
+  instructionListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: '#F0F0F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  instructionListItemSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}05`,
+  },
+  instructionListLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  instructionListIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  instructionListTextContainer: {
+    flex: 1,
+  },
+  instructionListLabel: {
+    fontSize: 15,
+    fontFamily: Fonts.SFProDisplay.Medium,
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  instructionListLabelSelected: {
+    fontFamily: Fonts.SFProDisplay?.Bold || 'System',
+  },
+  instructionListDescription: {
+    fontSize: 12,
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: Colors.textSecondary,
+    lineHeight: 16,
+  },
+  instructionCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  instructionCheckboxSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  // Keeping old grid styles for backward compatibility (will remove later)
   instructionsContainer: {
     flex: 1,
     paddingHorizontal: 16,

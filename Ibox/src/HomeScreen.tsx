@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Alert, Platform, Image } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation, NavigationProp, useRoute } from '@react-navigation/native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import Animated, { SlideInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from './config/colors';
 import { Fonts } from './config/fonts';
 import { FloatingLocationPicker } from './components/FloatingLocationPicker';
@@ -11,6 +13,7 @@ import TopNavigation from './components/TopNavigation';
 import ProfessionalSidebar from './components/ProfessionalSidebar';
 import ServiceSelectionModal from './components/ServiceSelectionModal';
 import NotificationModal from './components/NotificationModal';
+import { useAuth } from './contexts/AuthContext';
 
 interface Place {
   place_id: string;
@@ -51,6 +54,7 @@ type RootStackParamList = {
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const route = useRoute();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<Place[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -83,6 +87,8 @@ const HomeScreen: React.FC = () => {
   const [trackingDestination, setTrackingDestination] = useState<{latitude: number; longitude: number} | null>(null);
 
   const GOOGLE_API_KEY = 'AIzaSyAzPxqQ9QhUq_cmXkkcE-6DcgJn-EDngzI';
+
+  const mustVerifyPhone = user?.userType === 'customer' && user?.isPhoneVerified === false;
 
   useEffect(() => {
     getCurrentLocation();
@@ -512,10 +518,18 @@ const HomeScreen: React.FC = () => {
   };
 
   const handleMenuPress = () => {
+    if (mustVerifyPhone) {
+      navigation.navigate('PhoneVerification' as never);
+      return;
+    }
     setSidebarVisible(true);
   };
 
   const handleNotificationPress = () => {
+    if (mustVerifyPhone) {
+      navigation.navigate('PhoneVerification' as never);
+      return;
+    }
     console.log('🚀 Notifications pressed');
     setNotificationModalVisible(true);
   };
@@ -888,6 +902,27 @@ const HomeScreen: React.FC = () => {
         onBackPress={handleBackPress}
         notificationCount={notificationCount}
       />
+
+      {/* Floating Verify Phone Button for customers (unverified) */}
+      {user?.userType === 'customer' && user?.isPhoneVerified === false && !trackingActive && (
+        <View style={styles.verifyPhoneContainer}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => navigation.navigate('PhoneVerification' as never)}
+            style={styles.verifyPhoneButton}
+          >
+            <LinearGradient
+              colors={[Colors.primary, '#8B5CF6']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.verifyPhoneGradient}
+            >
+              <Ionicons name="shield-checkmark" size={18} color="white" />
+              <Text style={styles.verifyPhoneText}>Verify your phone</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      )}
       
       {mapError && (
         <View style={styles.errorBanner}>
@@ -900,6 +935,11 @@ const HomeScreen: React.FC = () => {
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
+      )}
+      
+      {/* Blocking overlay when customer phone not verified (intercepts all touches) */}
+      {mustVerifyPhone && (
+        <View style={styles.blockedOverlay} pointerEvents="auto" />
       )}
       
       {/* Bottom Action Buttons */}
@@ -928,9 +968,9 @@ const HomeScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Floating Location Picker (Redesigned with compact and expanded states) */}
+      {/* Floating Location Picker (Hidden when tracking driver) */}
       <FloatingLocationPicker
-        visible={!selectedService} // Always visible when no service is selected
+        visible={!selectedService && !trackingActive && !mustVerifyPhone} // Hidden when service selected, tracking, or not verified
         onClose={() => {
           // This would typically close the modal, but since it's always visible when no service is selected,
           // we don't need to do anything here
@@ -985,50 +1025,99 @@ const HomeScreen: React.FC = () => {
 
       {/* Driver Tracking Panel */}
       {trackingActive && trackingDriver && (
-        <View style={styles.driverTrackingPanel}>
-          <View style={styles.driverInfo}>
-            <View style={styles.driverPhotoContainer}>
-              <Text style={styles.driverInitials}>
-                {trackingDriver.name?.charAt(0) || 'D'}
+        <Animated.View 
+          style={styles.driverTrackingPanel}
+          entering={SlideInDown.springify()}
+        >
+          {/* Handle bar */}
+          <View style={styles.trackingHandleBar} />
+          
+          {/* Status Header */}
+          <View style={styles.trackingStatusHeader}>
+            <View style={styles.trackingStatusBadge}>
+              <View style={styles.trackingLiveDot} />
+              <Text style={styles.trackingStatusText}>
+                {estimatedArrival > 0 ? 'Driver En Route' : 'Driver Arrived'}
               </Text>
-              <View style={styles.onlineIndicator} />
             </View>
-            
-            <View style={styles.driverDetails}>
-              <Text style={styles.driverName}>{trackingDriver.name}</Text>
-              <Text style={styles.vehicleInfo}>
-                {trackingDriver.vehicleType} • {trackingDriver.vehiclePlate}
+            <View style={styles.trackingETABadge}>
+              <Ionicons name="time-outline" size={16} color={Colors.primary} />
+              <Text style={styles.trackingETA}>
+                {estimatedArrival > 0 ? `${estimatedArrival} min` : 'Here'}
               </Text>
-              <View style={styles.etaContainer}>
-                <Ionicons name="time-outline" size={14} color={Colors.success} />
-                <Text style={styles.etaText}>
-                  {estimatedArrival > 0 ? `${estimatedArrival} min away` : 'Arrived!'}
-                </Text>
+            </View>
+          </View>
+          
+          {/* Driver Info Card */}
+          <View style={styles.driverInfoCard}>
+            <View style={styles.driverMainInfo}>
+              <View style={styles.driverAvatarContainer}>
+                <LinearGradient
+                  colors={[Colors.primary, '#00A896']}
+                  style={styles.driverAvatarGradient}
+                >
+                  <Text style={styles.driverInitials}>
+                    {trackingDriver.name?.charAt(0) || 'D'}
+                  </Text>
+                </LinearGradient>
+                <View style={styles.onlineIndicator} />
+              </View>
+              
+              <View style={styles.driverDetailsSection}>
+                <Text style={styles.driverName}>{trackingDriver.name}</Text>
+                <View style={styles.ratingRow}>
+                  <Ionicons name="star" size={14} color="#FFB800" />
+                  <Text style={styles.ratingText}>4.8 • 342 trips</Text>
+                </View>
+              </View>
+              
+              <View style={styles.driverActionsContainer}>
+                <TouchableOpacity style={styles.driverActionBtn}>
+                  <LinearGradient
+                    colors={[Colors.primary, '#00A896']}
+                    style={styles.actionBtnGradient}
+                  >
+                    <Ionicons name="call" size={18} color="white" />
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.driverActionBtn}>
+                  <View style={styles.actionBtnOutline}>
+                    <Ionicons name="chatbubble" size={18} color={Colors.primary} />
+                  </View>
+                </TouchableOpacity>
               </View>
             </View>
-
-            <View style={styles.driverActions}>
-              <TouchableOpacity style={styles.actionButton} onPress={() => {}}>
-                <Ionicons name="call" size={18} color={Colors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} onPress={() => {}}>
-                <Ionicons name="chatbubble" size={18} color={Colors.primary} />
-              </TouchableOpacity>
+            
+            {/* Vehicle Info */}
+            <View style={styles.vehicleInfoRow}>
+              <View style={styles.vehicleIcon}>
+                <Image 
+                  source={require('../assets/images/car.png')}
+                  style={styles.vehicleImage}
+                />
+              </View>
+              <View style={styles.vehicleDetailsText}>
+                <Text style={styles.vehicleType}>{trackingDriver.vehicleType}</Text>
+                <View style={styles.plateBadge}>
+                  <Text style={styles.plateText}>{trackingDriver.vehiclePlate}</Text>
+                </View>
+              </View>
               <TouchableOpacity 
-                style={[styles.actionButton, styles.stopButton]} 
+                style={styles.cancelTripButton}
                 onPress={stopDriverTracking}
               >
-                <Ionicons name="close" size={18} color="#FF6B6B" />
+                <Text style={styles.cancelTripText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
           
+          {/* Progress Bar */}
           {estimatedArrival > 0 && (
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
+            <View style={styles.progressBarContainer}>
+              <View style={styles.progressBarTrack}>
                 <View 
                   style={[
-                    styles.progressFill, 
+                    styles.progressBarFill, 
                     { width: `${Math.max(10, 100 - (estimatedArrival / 15) * 100)}%` }
                   ]} 
                 />
@@ -1038,7 +1127,7 @@ const HomeScreen: React.FC = () => {
               </Text>
             </View>
           )}
-        </View>
+        </Animated.View>
       )}
     </View>
   );
@@ -1048,6 +1137,49 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  blockedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    zIndex: 998,
+    justifyContent: 'flex-start',
+    paddingTop: Platform.OS === 'ios' ? 120 : 110,
+    alignItems: 'center',
+  },
+  verifyPhoneContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 110 : 100,
+    left: 16,
+    right: 16,
+    zIndex: 999,
+    alignItems: 'center',
+  },
+  verifyPhoneButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  verifyPhoneGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  verifyPhoneText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   errorContainer: {
     justifyContent: 'center',
@@ -1221,109 +1353,227 @@ const styles = StyleSheet.create({
   driverTrackingPanel: {
     position: 'absolute',
     bottom: 20,
-    left: 20,
-    right: 20,
+    left: 16,
+    right: 16,
     backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 15,
   },
-  driverInfo: {
+  trackingHandleBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  trackingStatusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  trackingStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    backgroundColor: '#F0FAF8',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
   },
-  driverPhotoContainer: {
+  trackingLiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.success,
+    marginRight: 6,
+  },
+  trackingStatusText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.success,
+    fontFamily: Fonts.SFProDisplay?.SemiBold || 'System',
+  },
+  trackingETABadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary + '10',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  trackingETA: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.primary,
+    marginLeft: 4,
+    fontFamily: Fonts.SFProDisplay?.Bold || 'System',
+  },
+  driverInfoCard: {
+    paddingHorizontal: 20,
+  },
+  driverMainInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  driverAvatarContainer: {
     position: 'relative',
     marginRight: 12,
   },
+  driverAvatarGradient: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   driverInitials: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.primary,
+    fontSize: 20,
+    fontWeight: '700',
     color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 48,
+    fontFamily: Fonts.SFProDisplay?.Bold || 'System',
   },
   onlineIndicator: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: Colors.success,
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: 'white',
   },
-  driverDetails: {
+  driverDetailsSection: {
     flex: 1,
   },
   driverName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: Colors.textPrimary,
-    marginBottom: 2,
+    marginBottom: 4,
+    fontFamily: Fonts.SFProDisplay?.Bold || 'System',
   },
-  vehicleInfo: {
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ratingText: {
     fontSize: 13,
     color: Colors.textSecondary,
-    marginBottom: 4,
+    marginLeft: 4,
+    fontFamily: Fonts.SFProDisplay?.Regular || 'System',
   },
-  etaContainer: {
+  driverActionsContainer: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  driverActionBtn: {
+    width: 40,
+    height: 40,
+  },
+  actionBtnGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnOutline: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary + '08',
+  },
+  vehicleInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 20,
   },
-  etaText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: Colors.success,
+  vehicleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: 'white',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  driverActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
+  vehicleImage: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
+    resizeMode: 'contain',
   },
-  stopButton: {
+  vehicleDetailsText: {
+    flex: 1,
+  },
+  vehicleType: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+    fontFamily: Fonts.SFProDisplay?.SemiBold || 'System',
+  },
+  plateBadge: {
+    backgroundColor: Colors.primary + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  plateText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.primary,
+    fontFamily: Fonts.SFProDisplay?.SemiBold || 'System',
+  },
+  cancelTripButton: {
     backgroundColor: '#FFE5E5',
-    borderColor: '#FFB3B3',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
   },
-  progressContainer: {
-    marginTop: 8,
+  cancelTripText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FF4444',
+    fontFamily: Fonts.SFProDisplay?.SemiBold || 'System',
   },
-  progressBar: {
-    height: 4,
-    backgroundColor: Colors.surface,
-    borderRadius: 2,
+  progressBarContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  progressBarTrack: {
+    height: 6,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 3,
+    marginBottom: 8,
     overflow: 'hidden',
-    marginBottom: 6,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.success,
-    borderRadius: 2,
+  progressBarFill: {
+    height: 6,
+    backgroundColor: Colors.primary,
+    borderRadius: 3,
   },
   progressText: {
     fontSize: 12,
     color: Colors.textSecondary,
     textAlign: 'center',
+    fontFamily: Fonts.SFProDisplay?.Regular || 'System',
   },
 });
 

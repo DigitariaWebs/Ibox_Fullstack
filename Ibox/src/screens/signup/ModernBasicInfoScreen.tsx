@@ -16,12 +16,16 @@ import { Icon } from '../../ui/Icon';
 import { Colors } from '../../config/colors';
 import { Fonts } from '../../config/fonts';
 import ModernInput from '../../components/ModernInput';
+import ModernPhoneInput from '../../components/ModernPhoneInput';
 import IOSButton from '../../components/iOSButton';
 import { useAuth } from '../../contexts/AuthContext';
+import { ApiError, isApiError } from '../../utils/ApiError';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  FadeIn,
+  FadeOut,
 } from 'react-native-reanimated';
 
 const { width, height } = Dimensions.get('window');
@@ -103,9 +107,63 @@ const ModernBasicInfoScreen: React.FC<ModernBasicInfoScreenProps> = ({ navigatio
     if (!phone.trim()) {
       setPhoneError('Phone number is required');
       isValid = false;
-    } else if (phone.trim().length < 10) {
-      setPhoneError('Please enter a valid phone number');
-      isValid = false;
+    } else {
+      // Remove all non-digit characters except + for validation
+      const cleanPhone = phone.replace(/[^\d+]/g, '');
+      
+      // Check if it has a country code
+      if (!cleanPhone.startsWith('+')) {
+        setPhoneError('Please select a country code');
+        isValid = false;
+      } else {
+        // Specific validation for known country codes
+        if (cleanPhone.startsWith('+213')) { // Algeria
+          const numberPart = cleanPhone.substring(4);
+          if (numberPart.length !== 9) {
+            setPhoneError('Algerian phone numbers should be 9 digits');
+            isValid = false;
+          }
+        } else if (cleanPhone.startsWith('+216')) { // Tunisia
+          const numberPart = cleanPhone.substring(4);
+          if (numberPart.length !== 8) {
+            setPhoneError('Tunisian phone numbers should be 8 digits');
+            isValid = false;
+          }
+        } else if (cleanPhone.startsWith('+212')) { // Morocco
+          const numberPart = cleanPhone.substring(4);
+          if (numberPart.length !== 9) {
+            setPhoneError('Moroccan phone numbers should be 9 digits');
+            isValid = false;
+          }
+        } else if (cleanPhone.startsWith('+1')) { // USA/Canada
+          const numberPart = cleanPhone.substring(2);
+          if (numberPart.length !== 10) {
+            setPhoneError('US/Canadian phone numbers should be 10 digits');
+            isValid = false;
+          }
+        } else if (cleanPhone.startsWith('+33')) { // France
+          const numberPart = cleanPhone.substring(3);
+          if (numberPart.length !== 9) {
+            setPhoneError('French phone numbers should be 9 digits');
+            isValid = false;
+          }
+        } else if (cleanPhone.startsWith('+44')) { // UK
+          const numberPart = cleanPhone.substring(3);
+          if (numberPart.length < 10 || numberPart.length > 11) {
+            setPhoneError('UK phone numbers should be 10 or 11 digits');
+            isValid = false;
+          }
+        } else {
+          // Generic validation for other countries
+          if (cleanPhone.length < 10) {
+            setPhoneError('Phone number is too short');
+            isValid = false;
+          } else if (cleanPhone.length > 20) {
+            setPhoneError('Phone number is too long');
+            isValid = false;
+          }
+        }
+      }
     }
 
     // Password validation
@@ -155,16 +213,61 @@ const ModernBasicInfoScreen: React.FC<ModernBasicInfoScreenProps> = ({ navigatio
     } catch (error) {
       console.error('❌ Signup error:', error);
 
-      if (error instanceof Error) {
-        if (error.message.includes('email already exists') || error.message.includes('409')) {
-          setGeneralError('An account with this email already exists');
-        } else if (error.message.includes('Network')) {
-          setGeneralError('Network error. Please check your connection');
+      // Handle ApiError with structured information
+      if (isApiError(error)) {
+        console.log('📋 Structured error details:', error.toJSON());
+        
+        // Check if it's a validation error with specific field errors
+        if (error.isValidationError() && error.errors && Array.isArray(error.errors)) {
+          // Process validation errors from the API
+          error.errors.forEach((fieldError: any) => {
+            if (fieldError.field === 'phone') {
+              setPhoneError(fieldError.message || 'Invalid phone number');
+            } else if (fieldError.field === 'email') {
+              setEmailError(fieldError.message || 'Invalid email');
+            } else if (fieldError.field === 'password') {
+              setPasswordError(fieldError.message || 'Invalid password');
+            } else if (fieldError.field === 'firstName') {
+              setFirstNameError(fieldError.message || 'Invalid first name');
+            } else if (fieldError.field === 'lastName') {
+              setLastNameError(fieldError.message || 'Invalid last name');
+            }
+          });
+          
+          setGeneralError('Please check your information and try again.');
         } else {
-          setGeneralError('Signup failed. Please try again');
+          // Set field-specific errors based on error code
+          const phoneFieldError = error.getFieldError('phone');
+          const emailFieldError = error.getFieldError('email');
+          
+          if (phoneFieldError) {
+            setPhoneError(phoneFieldError);
+          }
+          
+          if (emailFieldError) {
+            setEmailError(emailFieldError);
+          }
+          
+          // Set general error message
+          setGeneralError(error.getUserFriendlyMessage());
+        }
+      } else if (error instanceof Error) {
+        // Fallback for non-ApiError instances
+        const errorMessage = error.message.toLowerCase();
+        
+        if (errorMessage.includes('phone number') || errorMessage.includes('phone exists')) {
+          setPhoneError('A user already exists with this phone number');
+          setGeneralError('This phone number is already registered. Please use a different number or sign in.');
+        } else if (errorMessage.includes('email already exists') || errorMessage.includes('email exists')) {
+          setEmailError('A user already exists with this email');
+          setGeneralError('This email is already registered. Please use a different email or sign in.');
+        } else if (errorMessage.includes('network')) {
+          setGeneralError('Network error. Please check your connection and try again.');
+        } else {
+          setGeneralError(error.message || 'Signup failed. Please try again.');
         }
       } else {
-        setGeneralError('Signup failed. Please try again');
+        setGeneralError('Signup failed. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -235,10 +338,23 @@ const ModernBasicInfoScreen: React.FC<ModernBasicInfoScreenProps> = ({ navigatio
 
             {/* General Error */}
             {generalError && (
-              <View style={styles.generalErrorContainer}>
-                <Icon name="alert-circle" type="Feather" size={16} color={Colors.error} />
+              <Animated.View 
+                entering={FadeIn}
+                exiting={FadeOut}
+                style={styles.generalErrorContainer}
+              >
+                <View style={styles.errorHeader}>
+                  <Icon name="alert-circle" type="Feather" size={18} color="#FFFFFF" />
+                  <Text style={styles.errorTitle}>Error</Text>
+                </View>
                 <Text style={styles.generalErrorText}>{generalError}</Text>
-              </View>
+                <TouchableOpacity 
+                  style={styles.errorCloseButton}
+                  onPress={() => setGeneralError('')}
+                >
+                  <Icon name="x" type="Feather" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </Animated.View>
             )}
 
             {/* Form */}
@@ -303,7 +419,7 @@ const ModernBasicInfoScreen: React.FC<ModernBasicInfoScreenProps> = ({ navigatio
                 containerStyle={styles.inputContainer}
               />
 
-              <ModernInput
+              <ModernPhoneInput
                 label="Phone Number"
                 value={phone}
                 onChangeText={(text) => {
@@ -311,12 +427,13 @@ const ModernBasicInfoScreen: React.FC<ModernBasicInfoScreenProps> = ({ navigatio
                   if (phoneError) setPhoneError('');
                   if (generalError) setGeneralError('');
                 }}
-                leftIcon="phone"
-                keyboardType="phone-pad"
+                onFocus={() => {
+                  if (phoneError) setPhoneError('');
+                  if (generalError) setGeneralError('');
+                }}
                 error={phoneError}
-                variant="outlined"
                 isRequired={true}
-                helpText="Include country code (e.g., +1 234-567-8900)"
+                helpText="We'll use this for order updates and verification"
                 lightTheme={true}
                 containerStyle={styles.inputContainer}
               />
@@ -467,22 +584,44 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   generalErrorContainer: {
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: Colors.error,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
+    position: 'relative',
+  },
+  errorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    marginBottom: 8,
+  },
+  errorTitle: {
+    fontSize: 16,
+    fontFamily: Fonts.SFProDisplay.Bold,
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
   generalErrorText: {
-    flex: 1,
     fontSize: 14,
-    color: Colors.error,
-    marginLeft: 8,
-    fontWeight: '500',
+    fontFamily: Fonts.SFProDisplay.Regular,
+    color: '#FFFFFF',
+    lineHeight: 20,
+  },
+  errorCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   formContainer: {
     marginBottom: 20,

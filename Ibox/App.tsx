@@ -22,9 +22,20 @@ import HomeScreen from './src/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import EditProfileScreen from './src/screens/EditProfileScreen';
 import TransporterHomeScreen from './src/screens/TransporterHomeScreen';
+import ModernDriverHomeScreen from './src/screens/ModernDriverHomeScreen';
 import DriverModeScreen from './src/screens/DriverModeScreen';
+import DriverVerificationScreen from './src/screens/DriverVerificationScreen';
+import PhoneVerificationScreen from './src/screens/PhoneVerificationScreen';
+import DriverProfileScreen from './src/screens/DriverProfileScreen';
+import ModernDriverProfileScreen from './src/screens/ModernDriverDashboard';
+import DriverNotificationsScreen from './src/screens/DriverNotificationsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import MyOrdersScreen from './src/screens/MyOrdersScreen';
+import EarningsScreen from './src/screens/EarningsScreen';
+import DeliveryHistoryScreen from './src/screens/DeliveryHistoryScreen';
+import DocumentsScreen from './src/screens/DocumentsScreen';
+import VehicleInfoScreen from './src/screens/VehicleInfoScreen';
+import HelpSupportScreen from './src/screens/HelpSupportScreen';
 import TrackPackageScreen from './src/screens/TrackPackageScreen';
 import { SignUpProvider } from './src/contexts/SignUpContext';
 import AccountTypeScreen from './src/screens/signup/AccountTypeScreen';
@@ -51,7 +62,6 @@ import AddressesScreen from './src/screens/AddressesScreen';
 import AddAddressScreen from './src/screens/AddAddressScreen';
 import PaymentMethodsScreen from './src/screens/PaymentMethodsScreen';
 import OrderHistoryScreen from './src/screens/OrderHistoryScreen';
-import HelpSupportScreen from './src/screens/HelpSupportScreen';
 import AboutScreen from './src/screens/AboutScreen';
 import ServicesScreen from './src/screens/ServicesScreen';
 import PackagePhotoScreen from './src/screens/PackagePhotoScreen';
@@ -62,8 +72,6 @@ import DriverFoundScreen from './src/screens/DriverFoundScreen';
 
 // Driver Quick Action Screens
 import EarningsHistoryScreen from './src/screens/EarningsHistoryScreen';
-import DeliveryHistoryScreen from './src/screens/DeliveryHistoryScreen';
-import VehicleInfoScreen from './src/screens/VehicleInfoScreen';
 import PreferredRoutesScreen from './src/screens/PreferredRoutesScreen';
 import DriverSupportScreen from './src/screens/DriverSupportScreen';
 
@@ -154,41 +162,43 @@ const Stack = createNativeStackNavigator();
 const MainNavigator: React.FC = () => {
   const { isAuthenticated, hasCompletedOnboarding, isLoading, user } = useAuth();
   const navigationRef = useRef<any>(null);
+  const lastNavigatedRef = useRef<string | null>(null);
 
   // Handle navigation when auth state changes
   useEffect(() => {
     if (!navigationRef.current || isLoading) return;
 
     const handleAuthStateChange = () => {
+      let targetScreen = 'OnboardingScreen';
       if (hasCompletedOnboarding && isAuthenticated) {
-        // User is authenticated - navigate based on user type
-        const targetScreen = user?.userType === 'transporter' ? 'TransporterHomeScreen' : 'HomeScreen';
-        console.log(`🏠 Navigating to ${targetScreen} (authenticated as ${user?.userType || 'customer'})`);
-        navigationRef.current.reset({
-          index: 0,
-          routes: [{ name: targetScreen }],
-        });
+        targetScreen = user?.userType === 'transporter' ? 'ModernDriverHomeScreen' : 'HomeScreen';
       } else if (hasCompletedOnboarding && !isAuthenticated) {
-        // User has seen onboarding but needs to log in
-        console.log('🔐 Navigating to AuthSelection (needs login)');
-        navigationRef.current.reset({
-          index: 0,
-          routes: [{ name: 'AuthSelection' }],
-        });
-      } else {
-        // New user - show onboarding
-        console.log('👋 Navigating to OnboardingScreen (new user)');
-        navigationRef.current.reset({
-          index: 0,
-          routes: [{ name: 'OnboardingScreen' }],
-        });
+        targetScreen = 'AuthSelection';
       }
+
+      if (lastNavigatedRef.current === targetScreen) {
+        return;
+      }
+
+      if (targetScreen === 'AuthSelection') {
+        console.log('🔐 Navigating to AuthSelection (needs login)');
+      } else if (targetScreen === 'OnboardingScreen') {
+        console.log('👋 Navigating to OnboardingScreen (new user)');
+      } else {
+        console.log(`🏠 Navigating to ${targetScreen} (authenticated as ${user?.userType || 'customer'})`);
+      }
+
+      navigationRef.current.reset({
+        index: 0,
+        routes: [{ name: targetScreen }],
+      });
+      lastNavigatedRef.current = targetScreen;
     };
 
     // Small delay to ensure navigation is ready
     const timer = setTimeout(handleAuthStateChange, 100);
     return () => clearTimeout(timer);
-  }, [isAuthenticated, hasCompletedOnboarding, isLoading, user]);
+  }, [isAuthenticated, hasCompletedOnboarding, isLoading, user?.userType]);
 
   // Show loading screen while checking cached auth state
   if (isLoading) {
@@ -200,7 +210,7 @@ const MainNavigator: React.FC = () => {
   
   if (hasCompletedOnboarding && isAuthenticated) {
     // User has completed onboarding and is logged in -> go to appropriate screen based on user type
-    initialRouteName = user?.userType === 'transporter' ? 'TransporterHomeScreen' : 'HomeScreen';
+    initialRouteName = user?.userType === 'transporter' ? 'ModernDriverHomeScreen' : 'HomeScreen';
   } else if (hasCompletedOnboarding && !isAuthenticated) {
     // User has seen onboarding before but needs to log in
     initialRouteName = 'AuthSelection';
@@ -304,7 +314,18 @@ const MainNavigator: React.FC = () => {
         {/* Main App Screens */}
         <Stack.Screen name="HomeScreen" component={HomeScreen} />
         <Stack.Screen name="TransporterHomeScreen" component={TransporterHomeScreen} />
+        <Stack.Screen name="ModernDriverHomeScreen" component={ModernDriverHomeScreen} />
         <Stack.Screen name="DriverModeScreen" component={DriverModeScreen} />
+        <Stack.Screen name="DriverVerification" component={DriverVerificationScreen} />
+        <Stack.Screen name="PhoneVerification" component={PhoneVerificationScreen} />
+        <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
+        <Stack.Screen name="ModernDriverProfile" component={ModernDriverProfileScreen} />
+        <Stack.Screen name="DriverNotifications" component={DriverNotificationsScreen} />
+        <Stack.Screen name="Earnings" component={EarningsScreen} />
+        <Stack.Screen name="DeliveryHistory" component={DeliveryHistoryScreen} />
+        <Stack.Screen name="Documents" component={DocumentsScreen} />
+        <Stack.Screen name="VehicleInfo" component={VehicleInfoScreen} />
+        <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
@@ -328,7 +349,6 @@ const MainNavigator: React.FC = () => {
         />
         <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
         <Stack.Screen name="OrderHistory" component={OrderHistoryScreen} />
-        <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
         <Stack.Screen name="About" component={AboutScreen} />
         <Stack.Screen name="Services" component={ServicesScreen} />
         
@@ -498,9 +518,6 @@ const MainNavigator: React.FC = () => {
         />
         
         {/* Driver Quick Action Screens */}
-        <Stack.Screen name="EarningsHistory" component={EarningsHistoryScreen} />
-        <Stack.Screen name="DeliveryHistory" component={DeliveryHistoryScreen} />
-        <Stack.Screen name="VehicleInfo" component={VehicleInfoScreen} />
         <Stack.Screen name="PreferredRoutes" component={PreferredRoutesScreen} />
         <Stack.Screen name="DriverSupport" component={DriverSupportScreen} />
       </Stack.Navigator>

@@ -29,6 +29,7 @@ import userRoutes from './routes/users.js';
 import orderRoutes from './routes/orders.js';
 import uploadRoutes from './routes/upload.js';
 import notificationRoutes from './routes/notifications.js';
+import driverRoutes from './routes/driver.js';
 
 // Get current directory for ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -210,7 +211,7 @@ app.get(`${API_BASE_PATH}/status`, (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     services: {
-      database: databaseConfig.isConnected() ? 'connected' : 'disconnected'
+      database: databaseConfig.isHealthy() ? 'connected' : 'disconnected'
     }
   });
 });
@@ -221,6 +222,7 @@ app.use(`${API_BASE_PATH}/users`, userRoutes);
 app.use(`${API_BASE_PATH}/orders`, orderRoutes);
 app.use(`${API_BASE_PATH}/upload`, uploadRoutes);
 app.use(`${API_BASE_PATH}/notifications`, notificationRoutes);
+app.use(`${API_BASE_PATH}/driver`, driverRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -231,6 +233,7 @@ app.get('/', (req, res) => {
     documentation: `${req.protocol}://${req.get('host')}/api/docs`,
     endpoints: {
       auth: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/auth`,
+      driver: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/driver`,
       health: `${req.protocol}://${req.get('host')}/health`,
       status: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/status`
     }
@@ -256,6 +259,17 @@ if (process.env.NODE_ENV === 'development') {
           changePassword: 'POST /auth/change-password',
           forgotPassword: 'POST /auth/forgot-password',
           resetPassword: 'POST /auth/reset-password'
+        },
+        driver: {
+          verificationStatus: 'GET /driver/verification/status',
+          uploadDocument: 'POST /driver/verification/upload',
+          todayStats: 'GET /driver/stats/today',
+          availableDeliveries: 'GET /driver/deliveries/available',
+          acceptDelivery: 'POST /driver/deliveries/:orderId/accept',
+          updateStatus: 'PUT /driver/status',
+          notifications: 'GET /driver/notifications',
+          earnings: 'GET /driver/earnings',
+          docs: 'GET /driver/docs'
         },
         utility: {
           health: 'GET /health',

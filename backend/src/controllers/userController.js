@@ -1,6 +1,8 @@
 import User from '../models/User.js';
 import authService from '../services/authService.js';
 import { validationResult } from 'express-validator';
+import twilioService from '../services/twilioService.js';
+import notificationService from '../services/notificationService.js';
 
 class UserController {
   // Get user profile (extended version of auth/me)
@@ -48,6 +50,279 @@ class UserController {
         success: false,
         message: 'Error retrieving profile',
         code: 'PROFILE_RETRIEVAL_ERROR'
+      });
+    }
+  }
+
+  // ===== PHONE VERIFICATION (CUSTOMER) =====
+  async sendPhoneVerification(req, res) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const user = await User.findById(req.userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+
+      if (!user.phone) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number not found in user profile.',
+          code: 'PHONE_NOT_FOUND'
+        });
+      }
+
+      if (user.isPhoneVerified) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number is already verified.',
+          code: 'PHONE_ALREADY_VERIFIED'
+        });
+      }
+
+      // Send verification code using Twilio Verify
+      const verificationResult = await twilioService.sendVerificationCode(user.phone);
+
+      if (verificationResult.success) {
+        await authService.logSecurityEvent(req.userId, 'customer_phone_verification_sent', {
+          phone: user.phone,
+          channel: 'sms',
+          timestamp: new Date(),
+          ip: req.ip
+        });
+
+        return res.json({
+          success: true,
+          message: 'Verification code sent successfully',
+          data: {
+            phone: user.phone,
+            status: verificationResult.status,
+            channel: verificationResult.channel
+          }
+        });
+      }
+
+      throw new Error('Failed to send verification code');
+    } catch (error) {
+      console.error('Send customer phone verification error:', error);
+
+      let statusCode = 500;
+      let message = 'Error sending verification code';
+      let code = 'VERIFICATION_SEND_ERROR';
+
+      if (error.message.includes('Invalid phone number')) {
+        statusCode = 400;
+        message = error.message;
+        code = 'INVALID_PHONE_NUMBER';
+      } else if (error.message.includes('limit exceeded')) {
+        statusCode = 429;
+        message = error.message;
+        code = 'RATE_LIMIT_EXCEEDED';
+      }
+
+      return res.status(statusCode).json({
+        success: false,
+        message,
+        code,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  async verifyPhoneCode(req, res) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const { code } = req.body;
+
+      if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid verification code. Please enter a 6-digit code.',
+          code: 'INVALID_CODE_FORMAT'
+        });
+      }
+
+      const user = await User.findById(req.userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+
+      if (!user.phone) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number not found in user profile.',
+          code: 'PHONE_NOT_FOUND'
+        });
+      }
+
+      if (user.isPhoneVerified) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number is already verified.',
+          code: 'PHONE_ALREADY_VERIFIED'
+        });
+      }
+
+      const verificationResult = await twilioService.verifyCode(user.phone, code);
+
+      if (!verificationResult.success) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired verification code',
+          code: 'INVALID_VERIFICATION_CODE'
+        });
+      }
+
+      // Mark phone verified
+      user.isPhoneVerified = true;
+      user.phoneVerifiedAt = new Date();
+      user.phoneVerificationCode = undefined;
+      user.phoneVerificationExpires = undefined;
+      await user.save();
+
+      await authService.logSecurityEvent(req.userId, 'customer_phone_verified', {
+        phone: user.phone,
+        verifiedAt: user.phoneVerifiedAt,
+        timestamp: new Date(),
+        ip: req.ip
+      });
+
+      // Notify user
+      try {
+        await notificationService.createNotification(
+          req.userId,
+          'Phone Verified',
+          'Your phone number has been successfully verified!',
+          'verification'
+        );
+      } catch {}
+
+      return res.json({
+        success: true,
+        message: 'Phone number verified successfully',
+        data: {
+          phone: user.phone,
+          verified: true,
+          verifiedAt: user.phoneVerifiedAt
+        }
+      });
+    } catch (error) {
+      console.error('Verify customer phone code error:', error);
+
+      let statusCode = 500;
+      let message = 'Error verifying code';
+      let code = 'VERIFICATION_ERROR';
+
+      if (error.message.includes('Invalid verification code')) {
+        statusCode = 400;
+        message = error.message;
+        code = 'INVALID_CODE';
+      } else if (error.message.includes('expired')) {
+        statusCode = 400;
+        message = 'Verification code has expired. Please request a new code.';
+        code = 'CODE_EXPIRED';
+      } else if (error.message.includes('attempts exceeded')) {
+        statusCode = 429;
+        message = error.message;
+        code = 'MAX_ATTEMPTS_EXCEEDED';
+      }
+
+      return res.status(statusCode).json({
+        success: false,
+        message,
+        code,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  async resendPhoneVerification(req, res) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      const user = await User.findById(req.userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+
+      if (user.isPhoneVerified) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number is already verified.',
+          code: 'PHONE_ALREADY_VERIFIED'
+        });
+      }
+
+      // Cancel any pending verifications if possible
+      try {
+        await twilioService.cancelVerification(user.phone);
+      } catch (e) {
+        console.warn('Could not cancel previous verification:', e.message);
+      }
+
+      const verificationResult = await twilioService.sendVerificationCode(user.phone);
+
+      if (!verificationResult.success) {
+        throw new Error('Failed to resend verification code');
+      }
+
+      await authService.logSecurityEvent(req.userId, 'customer_phone_verification_resent', {
+        phone: user.phone,
+        channel: 'sms',
+        timestamp: new Date(),
+        ip: req.ip
+      });
+
+      return res.json({
+        success: true,
+        message: 'New verification code sent successfully',
+        data: {
+          phone: user.phone,
+          status: verificationResult.status,
+          channel: verificationResult.channel
+        }
+      });
+    } catch (error) {
+      console.error('Resend customer phone verification error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error resending verification code',
+        code: 'VERIFICATION_RESEND_ERROR',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }

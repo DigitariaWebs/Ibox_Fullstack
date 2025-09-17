@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { discoverBackendUrl, getCachedServerUrl, clearServerCache } from '../config/network';
+import { ApiError } from '../utils/ApiError';
 
 // API Configuration with Automatic Discovery
 let API_CONFIG = {
@@ -55,10 +56,11 @@ interface ApiResponse<T = any> {
   message: string;
   data?: T;
   code?: string;
+  status?: number;
   errors?: Array<{
     field: string;
     message: string;
-  }>;
+  }> | any;
 }
 
 interface LoginRequest {
@@ -303,6 +305,10 @@ class ApiService {
         
         if (contentType && contentType.includes('application/json')) {
           data = await response.json();
+          // Ensure status is included in the response
+          if (!data.status) {
+            data.status = response.status;
+          }
         } else {
           // Handle non-JSON responses
           const text = await response.text();
@@ -310,6 +316,7 @@ class ApiService {
             success: response.ok,
             message: response.ok ? 'Request successful' : text || 'Request failed',
             data: response.ok ? (text as unknown as T) : undefined,
+            status: response.status,
           };
         }
 
@@ -329,6 +336,7 @@ class ApiService {
             status: response.status,
             success: data.success,
             message: data.message,
+            code: data.code || undefined,
             errors: data.errors || undefined,
           });
         }
@@ -400,7 +408,14 @@ class ApiService {
       }
     }
 
-    throw new Error(response.message || 'Login failed');
+    // Throw structured ApiError for consistency
+    throw new ApiError(
+      response.message || 'Login failed',
+      response.status || 401,
+      response.code,
+      response.errors,
+      response.success || false
+    );
   }
 
   async register(userData: RegisterRequest): Promise<AuthResponse> {
@@ -427,7 +442,15 @@ class ApiService {
 
     // Log detailed error information
     console.error('🚨 Registration failed with response:', JSON.stringify(response, null, 2));
-    throw new Error(response.message || 'Registration failed');
+    
+    // Throw structured ApiError with all the information
+    throw new ApiError(
+      response.message || 'Registration failed',
+      response.status || 400,
+      response.code,
+      response.errors,
+      response.success || false
+    );
   }
 
   // Advanced registration with additional profile data
@@ -1058,6 +1081,50 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify(payload)
     }, false);
+  }
+
+  // Generic REST Methods for custom endpoints
+  async get<T = any>(endpoint: string, params?: any): Promise<ApiResponse<T>> {
+    await this.ensureInitialized();
+    const queryString = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.makeRequest<T>(`${endpoint}${queryString}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  async post<T = any>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
+    await this.ensureInitialized();
+    return this.makeRequest<T>(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
+  async put<T = any>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
+    await this.ensureInitialized();
+    return this.makeRequest<T>(endpoint, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
+  async delete<T = any>(endpoint: string): Promise<ApiResponse<T>> {
+    await this.ensureInitialized();
+    return this.makeRequest<T>(endpoint, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   }
 
   // Utility Methods

@@ -35,6 +35,32 @@ router.use(sanitizeInput);
 // All user routes require authentication
 router.use(protect);
 
+// ===== PHONE VERIFICATION (CUSTOMER) =====
+// Send phone verification SMS
+router.post('/verification/phone/send',
+  rateLimitByUser(10, 60),
+  userController.sendPhoneVerification
+);
+
+// Verify phone with SMS code
+router.post('/verification/phone/verify',
+  rateLimitByUser(10, 60),
+  [
+    body('code')
+      .isLength({ min: 6, max: 6 })
+      .isNumeric()
+      .withMessage('Verification code must be a 6-digit number')
+  ],
+  handleValidationErrors,
+  userController.verifyPhoneCode
+);
+
+// Resend phone verification SMS
+router.post('/verification/phone/resend',
+  rateLimitByUser(5, 60),
+  userController.resendPhoneVerification
+);
+
 // Get user profile (extended profile information)
 router.get('/profile', 
   userController.getProfile
