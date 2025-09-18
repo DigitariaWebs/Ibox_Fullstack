@@ -535,17 +535,22 @@ The result is a verification experience that not only meets functional requireme
 - ✅ Express delivery flow connected
 - ✅ Distance calculation with Google Place Details API
 - ✅ Express urgency fee mapping fixed
+- ✅ Moving service backend integration complete
 - ⏳ Database seeding required
-- ⏳ Standard & Moving flows pending
+- ✅ Standard & Moving flows complete
 
 ### 🔧 **Recent Fixes (Latest Session):**
+- **Moving Service UI Consistency**: Redesigned MovingOrderSummary to match ExpressOrderSummary design for consistent app UI
+- **Moving Service Payment Method**: Fixed missing `paymentMethod` field in booking request that was causing validation errors
+- **Moving Service Pricing Calculation**: Fixed step-by-step pricing calculation for space size, items/quantities, access details (stairs/floors), and additional services
+- **Moving Service Backend Integration**: Complete backend integration for Moving service, matching Express and Standard flows
 - **Distance Calculation**: Fixed 0km issue by fetching real coordinates via Google Place Details API in HomeScreen
 - **Express Pricing**: Fixed urgency fee not showing in price breakdown by mapping urgency string id directly
 - **UI Consistency**: Moved urgency mappings to component level for proper variable scope
 - **Error Handling**: Improved validation and fallback mechanisms for location data
 
 ## 🏷️ Tags
-`react-native` `ui-ux-design` `driver-verification` `mobile-app` `premium-design` `animation` `user-experience` `professional-interface` `color-coding` `glass-morphism` `verification-flow` `mobile-optimization` `services-api` `backend-integration` `dynamic-pricing` `service-discovery` `order-management` `express-delivery` `real-time-pricing`
+`react-native` `ui-ux-design` `driver-verification` `mobile-app` `premium-design` `animation` `user-experience` `professional-interface` `color-coding` `glass-morphism` `verification-flow` `mobile-optimization` `services-api` `backend-integration` `dynamic-pricing` `service-discovery` `order-management` `express-delivery` `standard-delivery` `moving-service` `real-time-pricing`
 
 ---
 

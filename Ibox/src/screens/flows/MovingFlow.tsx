@@ -55,6 +55,9 @@ const MovingFlow: React.FC<MovingFlowProps> = ({ navigation, route }) => {
   });
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [specialNotes, setSpecialNotes] = useState('');
+  
+  // Get base pricing from route params
+  const { basePricing = 0, distanceKm = 0 } = route.params || {};
 
   // Animation values
   const progressValue = useSharedValue(0);
@@ -174,6 +177,7 @@ const MovingFlow: React.FC<MovingFlowProps> = ({ navigation, route }) => {
 
   const handleSubmit = () => {
     const selectedSizeData = sizeOptions.find(opt => opt.id === selectedSize);
+    const pricing = calculateTotal();
     
     navigation.navigate('MovingOrderSummary', {
       ...route.params,
@@ -183,6 +187,10 @@ const MovingFlow: React.FC<MovingFlowProps> = ({ navigation, route }) => {
       additionalServices: selectedServices,
       specialNotes,
       serviceType: 'moving',
+      // Pass detailed pricing breakdown
+      pricingBreakdown: pricing,
+      basePricing: pricing.baseDistance,
+      distanceKm: distanceKm
     });
   };
 
@@ -800,11 +808,101 @@ const MovingFlow: React.FC<MovingFlowProps> = ({ navigation, route }) => {
   );
 
   const calculateTotal = () => {
-    const sizePrice = parseInt(sizeOptions.find(o => o.id === selectedSize)?.price.replace('$', '') || '0');
-    const servicesPrice = selectedServices.length * 50; // Average service price
-    const floorCharge = (floorInfo.pickupFloor === '3' || floorInfo.pickupFloor === '4+' || 
-                         floorInfo.deliveryFloor === '3' || floorInfo.deliveryFloor === '4+') ? 50 : 0;
-    return sizePrice + servicesPrice + floorCharge;
+    // Step 1: Base distance pricing (from HomeScreen)
+    const baseDistancePrice = basePricing || 0;
+    
+    // Step 2: Space size pricing (additional to base distance)
+    let sizePrice = 0;
+    if (selectedSize) {
+      const sizeOption = sizeOptions.find(o => o.id === selectedSize);
+      if (sizeOption) {
+        sizePrice = parseInt(sizeOption.price.replace('$', ''));
+      }
+    }
+    
+    // Step 3: Items and quantities pricing
+    let itemsPrice = 0;
+    selectedItems.forEach(item => {
+      const baseItemPrice = getItemBasePrice(item.id);
+      itemsPrice += baseItemPrice * item.quantity;
+    });
+    
+    // Step 4: Access details pricing (stairs and floor charges)
+    let accessPrice = 0;
+    
+    // Floor charges
+    const pickupFloorCharge = getFloorCharge(floorInfo.pickupFloor);
+    const deliveryFloorCharge = getFloorCharge(floorInfo.deliveryFloor);
+    accessPrice += pickupFloorCharge + deliveryFloorCharge;
+    
+    // Stairs-only access charges
+    if (floorInfo.hasStairsPickup && !floorInfo.hasElevatorPickup) {
+      accessPrice += 25; // Additional charge for stairs-only pickup
+    }
+    if (floorInfo.hasStairsDelivery && !floorInfo.hasElevatorDelivery) {
+      accessPrice += 25; // Additional charge for stairs-only delivery
+    }
+    
+    // Step 5: Additional services pricing
+    let servicesPrice = 0;
+    selectedServices.forEach(serviceId => {
+      servicesPrice += getServicePrice(serviceId);
+    });
+    
+    const total = baseDistancePrice + sizePrice + itemsPrice + accessPrice + servicesPrice;
+    
+    return {
+      baseDistance: baseDistancePrice,
+      size: sizePrice,
+      items: itemsPrice,
+      access: accessPrice,
+      services: servicesPrice,
+      total: total
+    };
+  };
+
+  // Helper functions for pricing calculation
+  const getItemBasePrice = (itemId: string): number => {
+    const itemPrices = {
+      'sofa': 15,
+      'bed': 20,
+      'mattress': 10,
+      'table': 12,
+      'desk': 8,
+      'wardrobe': 25,
+      'chairs': 5,
+      'tv': 8,
+      'fridge': 30,
+      'washer': 25,
+      'boxes_small': 3,
+      'boxes_large': 5,
+      'fragile': 10,
+      'artwork': 15
+    };
+    return itemPrices[itemId] || 5;
+  };
+
+  const getFloorCharge = (floor: string): number => {
+    const floorCharges = {
+      'ground': 0,
+      '1': 10,
+      '2': 20,
+      '3': 35,
+      '4+': 50
+    };
+    return floorCharges[floor] || 0;
+  };
+
+  const getServicePrice = (serviceId: string): number => {
+    const servicePrices = {
+      'packing': 50,
+      'unpacking': 40,
+      'assembly': 60,
+      'cleaning': 80,
+      'insurance': 30,
+      'storage': 70
+    };
+    return servicePrices[serviceId] || 25;
   };
 
   return (
@@ -870,22 +968,50 @@ const MovingFlow: React.FC<MovingFlowProps> = ({ navigation, route }) => {
       {/* Price Summary (if items selected) */}
       {(selectedSize || selectedItems.length > 0) && (
         <View style={styles.priceSummary}>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Base Price</Text>
-            <Text style={styles.priceValue}>
-              {sizeOptions.find(o => o.id === selectedSize)?.price || '$0'}
-            </Text>
-          </View>
-          {selectedServices.length > 0 && (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Services</Text>
-              <Text style={styles.priceValue}>+${selectedServices.length * 50}</Text>
-            </View>
-          )}
-          <View style={[styles.priceRow, styles.totalRow]}>
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>${calculateTotal()}</Text>
-          </View>
+          {(() => {
+            const pricing = calculateTotal();
+            return (
+              <>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Base Distance ({distanceKm.toFixed(1)}km)</Text>
+                  <Text style={styles.priceValue}>${pricing.baseDistance.toFixed(2)}</Text>
+                </View>
+                
+                {pricing.size > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Space Size</Text>
+                    <Text style={styles.priceValue}>+${pricing.size.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                {pricing.items > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Items ({selectedItems.reduce((sum, item) => sum + item.quantity, 0)})</Text>
+                    <Text style={styles.priceValue}>+${pricing.items.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                {pricing.access > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Access Charges</Text>
+                    <Text style={styles.priceValue}>+${pricing.access.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                {pricing.services > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Additional Services</Text>
+                    <Text style={styles.priceValue}>+${pricing.services.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                <View style={[styles.priceRow, styles.totalRow]}>
+                  <Text style={styles.totalLabel}>Total</Text>
+                  <Text style={styles.totalValue}>${pricing.total.toFixed(2)}</Text>
+                </View>
+              </>
+            );
+          })()}
         </View>
       )}
 

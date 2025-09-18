@@ -43,6 +43,9 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
   const [selectedInstructions, setSelectedInstructions] = useState<string[]>([]);
   const [specialNotes, setSpecialNotes] = useState<string>('');
   const [isTransitioning, setIsTransitioning] = useState(false);
+  
+  // Get base pricing from route params
+  const { basePricing = 0, distanceKm = 0 } = route.params || {};
 
   // Animation values
   const progressValue = useSharedValue(0);
@@ -471,7 +474,7 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
   };
 
   const getInstructionsCost = () => selectedInstructions.length * 1;
-  const getTotalPrice = () => getSelectedPrice() + getInstructionsCost();
+  const getTotalPrice = () => basePricing + getSelectedPrice() + getInstructionsCost();
 
   return (
     <View style={styles.container}>
@@ -524,6 +527,10 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
       {selectedTimeWindow && (
         <View style={styles.priceSummary}>
           <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Base delivery ({distanceKm.toFixed(1)}km)</Text>
+            <Text style={styles.priceValue}>${basePricing.toFixed(2)}</Text>
+          </View>
+          <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Time Window</Text>
             <Text style={styles.priceValue}>
               {timeWindowOptions.find(o => o.id === selectedTimeWindow)?.price || '$0'}
@@ -538,7 +545,7 @@ const StandardFlow: React.FC<StandardFlowProps> = ({ navigation, route }) => {
           <View style={[styles.priceRow, styles.totalRow]}>
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>
-              ${getTotalPrice()}
+              ${getTotalPrice().toFixed(2)}
             </Text>
           </View>
         </View>

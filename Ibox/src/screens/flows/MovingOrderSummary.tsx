@@ -8,35 +8,28 @@ import {
   Dimensions,
   Image,
   Platform,
+  Alert,
 } from 'react-native';
 import Animated, {
   SlideInUp,
   FadeIn,
   FadeInDown,
-  SlideInRight,
-  ZoomIn,
+  FadeInUp,
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
   withDelay,
   withSequence,
-  withRepeat,
   interpolate,
   Extrapolation,
-  runOnJS,
-  Easing,
 } from 'react-native-reanimated';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
 import { Colors } from '../../config/colors';
 import { Fonts } from '../../config/fonts';
 import { Text, Button } from '../../ui';
-
-// Status bar height
-const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
+import { Icon } from '../../ui/Icon';
+import servicesService, { ServicePricingRequest, ServiceBookingRequest, PricingResponse, Order } from '../../services/servicesService';
 
 // Safe window dimensions
 const windowDims = Dimensions.get('window');
@@ -54,47 +47,139 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
   console.log('🚚 MovingOrderSummary: Component mounted');
   console.log('🚚 MovingOrderSummary: Route params received:', Object.keys(route.params || {}));
   
-  const { 
-    service, 
-    startLocation, 
-    startLocationCoords, 
-    destination, 
+  // Destructure route params FIRST
+  const {
+    service,
+    startLocation: rawStartLocation,
+    startLocationCoords,
+    destination,
+    basePricing = 0,
+    distanceKm = 0,
     apartmentSize,
     inventoryItems = [],
-    additionalServices = [], 
-    specialNotes,
-    packagePhoto,
-    serviceType 
-  } = route.params;
+    floorInfo,
+    additionalServices = [],
+    specialNotes = '',
+    serviceType,
+    pricingBreakdown
+  } = route.params || {};
+
+  // Ensure startLocation is never empty
+  const startLocation = (rawStartLocation && rawStartLocation.trim() && rawStartLocation.trim() !== '') 
+    ? rawStartLocation.trim() 
+    : 'Current Location';
+
+  console.log('🔍 DEBUG: startLocation on mount:', startLocation);
+  console.log('🔍 DEBUG: destination on mount:', destination);
+  console.log('🔍 DEBUG: startLocationCoords on mount:', startLocationCoords);
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [backendPricing, setBackendPricing] = useState<PricingResponse | null>(null);
+  const [isLoadingPricing, setIsLoadingPricing] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
   
   const buttonScale = useSharedValue(1);
-  const shimmerAnimation = useSharedValue(0);
-  const cardScale = useSharedValue(0.95);
-  const headerOpacity = useSharedValue(0);
-  const floatingCardY = useSharedValue(20);
-  const priceCounterAnimation = useSharedValue(0);
 
+  // Load backend pricing
+  useEffect(() => {
+    const loadBackendPricing = async () => {
+      if (startLocation && destination && startLocationCoords && !backendPricing && !isLoadingPricing) {
+        setIsLoadingPricing(true);
+        
+        try {
+          const pricingRequest: ServicePricingRequest = {
+            pickupLocation: servicesService.mapToServiceLocation(
+              startLocation,
+              startLocationCoords
+            ),
+            dropoffLocation: servicesService.mapToServiceLocation(
+              destination.address || destination.name || 'Destination',
+              { latitude: destination.coordinate?.latitude, longitude: destination.coordinate?.longitude }
+            ),
+            packageDetails: servicesService.mapToPackageDetails({
+              description: 'Moving service - Professional relocation',
+              packageSize: apartmentSize?.id || 'house',
+              specialInstructions: additionalServices,
+              fragile: additionalServices.includes('fragile'),
+              weight: inventoryItems.reduce((sum, item) => sum + (item.weight || 0), 0) || 100,
+              dimensions: {
+                length: 200,
+                width: 150,
+                height: 100
+              }
+            }),
+            additionalServices: additionalServices
+          };
 
-  // Calculate estimated price based on selections
+          console.log('💰 Loading backend pricing for Moving service...', pricingRequest);
+          
+          const pricing = await servicesService.calculatePricing('moving-service', pricingRequest);
+          setBackendPricing(pricing);
+          console.log('✅ Backend pricing loaded:', pricing.pricing.totalAmount, pricing.pricing.currency);
+          
+        } catch (error) {
+          console.error('❌ Failed to load backend pricing:', error);
+          // Continue with frontend pricing as fallback
+        } finally {
+          setIsLoadingPricing(false);
+        }
+      }
+    };
+
+    // Load pricing after a short delay
+    const timer = setTimeout(loadBackendPricing, 2000);
+    return () => clearTimeout(timer);
+  }, [startLocation, destination, startLocationCoords, additionalServices, apartmentSize]);
+
+  // Calculate price following the user scenario
   const calculatePrice = () => {
+    // Use backend pricing if available (prioritize backend over frontend)
+    if (backendPricing) {
+      const pricing = backendPricing.pricing;
+      return {
+        base: pricing.baseFee,
+        complexity: pricing.surcharges.reduce((sum, s) => sum + s.amount, 0),
+        services: 0, // Already included in surcharges
+        total: pricing.totalAmount,
+        currency: pricing.currency,
+        distanceKm: distanceKm,
+        breakdown: pricing,
+        isBackendPricing: true
+      };
+    }
+
+    // Use detailed pricing breakdown from MovingFlow if available
+    if (pricingBreakdown) {
+      return {
+        base: pricingBreakdown.baseDistance,
+        complexity: pricingBreakdown.items + pricingBreakdown.access,
+        services: pricingBreakdown.services,
+        total: pricingBreakdown.total,
+        currency: 'USD',
+        distanceKm: distanceKm,
+        isBackendPricing: false,
+        breakdown: pricingBreakdown
+      };
+    }
+
+    // Frontend calculation fallback
+    let basePrice = basePricing || 0;
     
-    let basePrice = 0;
-    
-    // Base price by apartment size
-    switch(apartmentSize?.id) {
-      case 'studio':
-        basePrice = 129;
-        break;
-      case '2br':
-        basePrice = 199;
-        break;
-      case '4br':
-        basePrice = 299;
-        break;
-      default:
-        basePrice = 199;
+    // Base price by apartment size (fallback)
+    if (!basePrice) {
+      switch(apartmentSize?.id) {
+        case 'studio':
+          basePrice = 129;
+          break;
+        case '2br':
+          basePrice = 199;
+          break;
+        case '4br':
+          basePrice = 299;
+          break;
+        default:
+          basePrice = 199;
+      }
     }
     
     // Add complexity based on inventory count
@@ -118,60 +203,127 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
       base: basePrice,
       complexity: inventoryComplexity,
       services: servicesTotal,
-      total: basePrice + inventoryComplexity + servicesTotal
+      total: basePrice + inventoryComplexity + servicesTotal,
+      currency: 'USD',
+      distanceKm: distanceKm,
+      isBackendPricing: false
     };
   };
 
   const price = calculatePrice();
 
-  // Advanced animations on mount
-  useEffect(() => {
-    // Header entrance animation
-    headerOpacity.value = withDelay(200, withTiming(1, { duration: 800, easing: Easing.out(Easing.cubic) }));
-    
-    // Card scale animation
-    cardScale.value = withDelay(400, withSpring(1, { 
-      damping: 15, 
-      stiffness: 150,
-      mass: 0.8
-    }));
-    
-    // Floating cards animation
-    floatingCardY.value = withDelay(600, withSpring(0, {
-      damping: 12,
-      stiffness: 100
-    }));
-    
-    // Shimmer effect
-    shimmerAnimation.value = withRepeat(
-      withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      false
-    );
-    
-    // Price counter animation
-    priceCounterAnimation.value = withDelay(800, withSpring(1, { duration: 1200 }));
-  }, []);
-
-  const handleStartRequest = () => {
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const handleStartRequest = async () => {
     console.log('🚚 MovingOrderSummary: Start request button pressed');
+    console.log('🔍 DEBUG: startLocation:', startLocation);
+    console.log('🔍 DEBUG: destination:', destination);
+    console.log('🔍 DEBUG: startLocationCoords:', startLocationCoords);
+    console.log('🔍 DEBUG: All route params:', Object.keys(route.params || {}));
     
+    if (!startLocation || !destination || !startLocationCoords) {
+      console.log('❌ Missing location data - startLocation:', !!startLocation, 'destination:', !!destination, 'startLocationCoords:', !!startLocationCoords);
+      Alert.alert('Error', 'Missing location information. Please try again.');
+      return;
+    }
+
     setIsProcessing(true);
     buttonScale.value = withSpring(0.95, { duration: 100 }, () => {
       buttonScale.value = withSpring(1, { duration: 200 });
     });
 
-    // Simulate processing
-    setTimeout(() => {
-      console.log('🚚 MovingOrderSummary: Navigating to DriverSearch');
+    try {
+      // Create order in backend
+      const bookingRequest: ServiceBookingRequest = {
+        pickupLocation: servicesService.mapToServiceLocation(
+          startLocation,
+          startLocationCoords
+        ),
+        dropoffLocation: servicesService.mapToServiceLocation(
+          destination.address || destination.name || 'Destination',
+          { latitude: destination.coordinate?.latitude, longitude: destination.coordinate?.longitude }
+        ),
+        packageDetails: servicesService.mapToPackageDetails({
+          description: 'Moving service - Professional relocation',
+          packageSize: apartmentSize?.id || 'house',
+          specialInstructions: additionalServices,
+          fragile: additionalServices.includes('fragile'),
+          weight: inventoryItems.reduce((sum, item) => sum + (item.weight || 0), 0) || 100,
+          dimensions: {
+            length: 200,
+            width: 150,
+            height: 100
+          }
+        }),
+        scheduledPickupTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Next day
+        additionalServices: additionalServices,
+        specialInstructions: specialNotes || additionalServices.join(', '),
+        paymentMethod: 'card', // Default payment method
+        pricingDetails: backendPricing || price
+      };
+
+      console.log('📦 Creating Moving order in backend...', bookingRequest);
+      
+      const result = await servicesService.bookService('moving-service', bookingRequest);
+      setCreatedOrder(result.order);
+      
+      console.log('✅ Moving order created successfully:', result.order._id);
+      
+      // Navigate to DriverSearch with order details
       navigation.navigate('DriverSearch', {
         ...route.params,
         price: price,
+        orderId: result.order._id,
+        order: result.order,
         bookingId: `MV${Date.now()}`,
       });
-    }, 1000);
+      
+    } catch (error: any) {
+      console.error('❌ Failed to create Moving order:', error);
+      Alert.alert(
+        'Order Failed', 
+        error.message || 'Failed to create your order. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancelOrder = async () => {
+    if (!createdOrder) {
+      navigation.goBack();
+      return;
+    }
+
+    Alert.alert(
+      'Cancel Order',
+      'Are you sure you want to cancel this order?',
+      [
+        { text: 'No', style: 'cancel' },
+        { 
+          text: 'Yes, Cancel', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('❌ Cancelling Moving order:', createdOrder._id);
+              
+              await servicesService.cancelOrder(createdOrder._id, 'Customer cancellation from order summary');
+              
+              console.log('✅ Moving order cancelled successfully');
+              
+              Alert.alert(
+                'Order Cancelled',
+                'Your order has been cancelled successfully.',
+                [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
+              );
+              
+            } catch (error: any) {
+              console.error('❌ Failed to cancel order:', error);
+              Alert.alert('Error', 'Failed to cancel order. Please contact support.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const buttonAnimatedStyle = useAnimatedStyle(() => {
@@ -180,145 +332,61 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
     };
   });
 
-  const headerAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: headerOpacity.value,
-    };
-  });
-
-  const cardAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: cardScale.value }],
-    };
-  });
-
-  const floatingCardStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: floatingCardY.value }],
-    };
-  });
-
-  const shimmerStyle = useAnimatedStyle(() => {
-    const translateX = interpolate(
-      shimmerAnimation.value,
-      [0, 1],
-      [-100, 100],
-      Extrapolation.CLAMP
-    );
-    return {
-      transform: [{ translateX }],
-    };
-  });
-
-  const priceCounterStyle = useAnimatedStyle(() => {
-    const animatedPrice = interpolate(
-      priceCounterAnimation.value,
-      [0, 1],
-      [0, price.total],
-      Extrapolation.CLAMP
-    );
-    return {
-      // This would be used for number animation if needed
-      opacity: priceCounterAnimation.value,
-    };
-  });
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Premium Header with Advanced Gradient */}
-      <Animated.View style={[headerAnimatedStyle]}>
+      {/* Modern Header without back button */}
+      <View style={styles.header}>
         <LinearGradient
-          colors={[Colors.primary, '#00A896', '#667eea']}
-          style={styles.headerWrapper}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          locations={[0, 0.6, 1]}
+          colors={['#FFFFFF', '#F8F9FA']}
+          style={styles.headerGradient}
+        />
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>
+            Moving <Text style={styles.headerTitleSpecial}>Summary</Text>
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            Review and confirm your moving service
+          </Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.closeButton}
+          onPress={() => navigation.goBack()}
         >
-          {/* Shimmer overlay */}
-          <Animated.View style={[styles.shimmerOverlay, shimmerStyle]} />
-          
-          <View style={styles.statusBarSpace} />
-          <View style={styles.header}>
-            <TouchableOpacity 
-              style={styles.headerButton} 
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                console.log('🚚 MovingOrderSummary: Close button pressed');
-                navigation.goBack();
-              }}
-            >
-              <BlurView intensity={20} style={styles.headerButtonBlur}>
-                <Ionicons name="close" size={24} color="white" />
-              </BlurView>
-            </TouchableOpacity>
-            
-            <View style={styles.headerTitleContainer}>
-              <Text style={styles.headerTitle}>Moving <Text style={styles.headerTitleItalic}>Summary</Text></Text>
-              <Text style={styles.headerSubtitle}>Review your moving details</Text>
-              
-              {/* Premium accent line */}
-              <View style={styles.headerAccentLine} />
-            </View>
-            
-            <View style={styles.headerPlaceholder} />
-          </View>
-        </LinearGradient>
-      </Animated.View>
+          <Icon name="x" type="Feather" size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Premium Service Details */}
-        <Animated.View style={[styles.section, floatingCardStyle]} entering={ZoomIn.delay(200).springify()}>
+        {/* Service Details */}
+        <Animated.View style={styles.section} entering={SlideInUp.delay(100)}>
           <View style={styles.sectionHeader}>
-            <View style={styles.sectionIconContainer}>
-              <MaterialIcons name="local-shipping" size={20} color={Colors.primary} />
-            </View>
-            <Text style={styles.sectionTitle}>Moving Details</Text>
-            <View style={styles.sectionBadge}>
-              <Text style={styles.sectionBadgeText}>✓</Text>
-            </View>
+            <Icon name="truck" type="Feather" size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Moving <Text style={styles.sectionTitleSpecial}>Details</Text></Text>
           </View>
-          
-          <Animated.View style={[styles.premiumServiceCard, cardAnimatedStyle]}>
-            {/* Glass morphism overlay */}
-            <BlurView intensity={10} style={styles.cardBlurOverlay} />
-            
+          <View style={styles.serviceCard}>
             <View style={styles.serviceIcon}>
-              <LinearGradient
-                colors={[Colors.primary + '20', Colors.primary + '40']}
-                style={styles.serviceIconGradient}
-              >
-                <MaterialIcons name="local-shipping" size={28} color={Colors.primary} />
-              </LinearGradient>
+              <Icon name="truck" type="Feather" size={24} color={Colors.primary} />
             </View>
-            
             <View style={styles.serviceInfo}>
               <Text style={styles.serviceTitle}>Moving Service</Text>
-              <Text style={styles.serviceSubtitle}>{apartmentSize?.title || '2-3 Chambres'}</Text>
-              <Text style={styles.serviceDescription}>{apartmentSize?.subtitle || 'Appartement familial'}</Text>
-              
-              {/* Premium feature indicator */}
-              <View style={styles.premiumIndicator}>
-                <Text style={styles.premiumText}>Premium Service</Text>
-              </View>
+              <Text style={styles.serviceSubtitle}>{apartmentSize?.title || '2-3 Bedrooms'}</Text>
+              <Text style={styles.serviceDescription}>Professional moving service</Text>
             </View>
-            
-            {/* Floating accent dot */}
-            <View style={styles.floatingDot} />
-          </Animated.View>
+          </View>
         </Animated.View>
 
         {/* Route Information */}
         <Animated.View style={styles.section} entering={SlideInUp.delay(200)}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="route" size={20} color={Colors.primary} />
+            <Icon name="map-pin" type="Feather" size={20} color={Colors.primary} />
             <Text style={styles.sectionTitle}>Route</Text>
           </View>
           <View style={styles.routeCard}>
             <View style={styles.routeItem}>
               <View style={styles.routeIconContainer}>
-                <MaterialIcons name="my-location" size={16} color={Colors.primary} />
+                <Icon name="map-pin" type="Feather" size={14} color={Colors.primary} />
               </View>
               <View style={styles.routeInfo}>
                 <Text style={styles.routeLabel}>Pickup Location</Text>
@@ -330,7 +398,7 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
             
             <View style={styles.routeItem}>
               <View style={styles.routeIconContainer}>
-                <MaterialIcons name="location-on" size={16} color={Colors.error} />
+                <Icon name="map-pin" type="Feather" size={14} color={Colors.error} />
               </View>
               <View style={styles.routeInfo}>
                 <Text style={styles.routeLabel}>Delivery Address</Text>
@@ -344,7 +412,7 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
         {inventoryItems.length > 0 && (
           <Animated.View style={styles.section} entering={SlideInUp.delay(300)}>
             <View style={styles.sectionHeader}>
-              <MaterialIcons name="inventory-2" size={20} color={Colors.primary} />
+              <Icon name="package" type="Feather" size={20} color={Colors.primary} />
               <Text style={styles.sectionTitle}>Items to Move ({inventoryItems.length})</Text>
             </View>
             <View style={styles.instructionsCard}>
@@ -352,9 +420,9 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
                 {inventoryItems.map((item, index) => (
                   <View key={item.id} style={styles.inventoryItem}>
                     <View style={styles.inventoryIcon}>
-                      <MaterialIcons name={item.icon} size={20} color={Colors.primary} />
+                      <Icon name={item.icon} type="MaterialIcons" size={20} color={Colors.primary} />
                     </View>
-                    <Text style={styles.inventoryName}>{item.title}</Text>
+                    <Text style={styles.inventoryName}>{item.name}</Text>
                     <Text style={styles.inventoryQuantity}>×{item.quantity}</Text>
                   </View>
                 ))}
@@ -367,23 +435,23 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
         {additionalServices.length > 0 && (
           <Animated.View style={styles.section} entering={SlideInUp.delay(400)}>
             <View style={styles.sectionHeader}>
-              <MaterialIcons name="build" size={20} color={Colors.primary} />
-              <Text style={styles.sectionTitle}>Additional Services</Text>
+              <Icon name="list" type="Feather" size={20} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>Additional <Text style={styles.sectionTitleSpecial}>Services</Text></Text>
             </View>
             <View style={styles.instructionsCard}>
               <View style={styles.instructionsList}>
                 {additionalServices.map((serviceId, index) => {
                   const serviceNames = {
-                    'packing': 'Service d\'emballage',
-                    'unpacking': 'Service de déballage', 
-                    'assembly': 'Montage de meubles',
-                    'storage': 'Stockage temporaire',
-                    'cleaning': 'Nettoyage',
-                    'protection': 'Protection des biens'
+                    'packing': 'Packing Service',
+                    'unpacking': 'Unpacking Service', 
+                    'assembly': 'Furniture Assembly',
+                    'storage': 'Temporary Storage',
+                    'cleaning': 'Cleaning Service',
+                    'protection': 'Item Protection'
                   };
                   return (
                     <View key={index} style={styles.instructionItem}>
-                      <MaterialIcons name="check-circle" size={16} color={Colors.primary} />
+                      <Icon name="check-circle" type="Feather" size={14} color={Colors.primary} />
                       <Text style={styles.instructionText}>{serviceNames[serviceId] || serviceId}</Text>
                     </View>
                   );
@@ -397,8 +465,8 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
         {specialNotes && (
           <Animated.View style={styles.section} entering={SlideInUp.delay(500)}>
             <View style={styles.sectionHeader}>
-              <MaterialIcons name="assignment" size={20} color={Colors.primary} />
-              <Text style={styles.sectionTitle}>Special Instructions</Text>
+              <Icon name="edit" type="Feather" size={20} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>Special <Text style={styles.sectionTitleSpecial}>Instructions</Text></Text>
             </View>
             <View style={styles.instructionsCard}>
               <View style={styles.notesSection}>
@@ -412,26 +480,67 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
         {/* Price Breakdown */}
         <Animated.View style={styles.section} entering={SlideInUp.delay(600)}>
           <View style={styles.sectionHeader}>
-            <MaterialIcons name="receipt" size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Price Breakdown</Text>
+            <Icon name="credit-card" type="Feather" size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Price <Text style={styles.sectionTitleSpecial}>Breakdown</Text></Text>
           </View>
           <View style={styles.priceCard}>
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Base moving service</Text>
-              <Text style={styles.priceValue}>${price.base.toFixed(2)}</Text>
-            </View>
-            {price.complexity > 0 && (
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Inventory complexity</Text>
-                <Text style={styles.priceValue}>${price.complexity.toFixed(2)}</Text>
-              </View>
+            {/* Show detailed breakdown if available */}
+            {price.breakdown ? (
+              <>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Base Distance ({price.distanceKm.toFixed(1)}km)</Text>
+                  <Text style={styles.priceValue}>${price.breakdown.baseDistance.toFixed(2)}</Text>
+                </View>
+                
+                {price.breakdown.size > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Space Size</Text>
+                    <Text style={styles.priceValue}>+${price.breakdown.size.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                {price.breakdown.items > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Items ({inventoryItems.reduce((sum, item) => sum + item.quantity, 0)})</Text>
+                    <Text style={styles.priceValue}>+${price.breakdown.items.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                {price.breakdown.access > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Access Charges</Text>
+                    <Text style={styles.priceValue}>+${price.breakdown.access.toFixed(2)}</Text>
+                  </View>
+                )}
+                
+                {price.breakdown.services > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Additional Services</Text>
+                    <Text style={styles.priceValue}>+${price.breakdown.services.toFixed(2)}</Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Base moving service</Text>
+                  <Text style={styles.priceValue}>${price.base.toFixed(2)}</Text>
+                </View>
+                {price.complexity > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Inventory complexity</Text>
+                    <Text style={styles.priceValue}>${price.complexity.toFixed(2)}</Text>
+                  </View>
+                )}
+                {price.services > 0 && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Additional services</Text>
+                    <Text style={styles.priceValue}>${price.services.toFixed(2)}</Text>
+                  </View>
+                )}
+              </>
             )}
-            {price.services > 0 && (
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Additional services</Text>
-                <Text style={styles.priceValue}>${price.services.toFixed(2)}</Text>
-              </View>
-            )}
+            
             <View style={styles.priceDivider} />
             <View style={styles.priceRow}>
               <Text style={styles.priceTotalLabel}>Total</Text>
@@ -444,81 +553,67 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
         <Animated.View style={styles.section} entering={SlideInUp.delay(700)}>
           <View style={styles.timeCard}>
             <View style={styles.timeIconContainer}>
-              <MaterialIcons name="schedule" size={24} color={Colors.primary} />
+              <Icon name="clock" type="Feather" size={22} color={Colors.primary} />
             </View>
             <View style={styles.timeInfo}>
               <Text style={styles.timeLabel}>Estimated Duration</Text>
-              <Text style={styles.timeValue}>{apartmentSize?.duration || '4-6h'}</Text>
+              <Text style={styles.timeValue}>{apartmentSize?.duration || '4-6 hours'}</Text>
             </View>
           </View>
         </Animated.View>
       </ScrollView>
 
-      {/* Premium Bottom Actions */}
+      {/* Modern Bottom Actions */}
       <View style={styles.bottomSection}>
-        <BlurView intensity={20} style={styles.bottomBlurOverlay} />
-        
-        <Animated.View style={[styles.totalAmountDisplay, priceCounterStyle]} entering={FadeInDown.delay(1000).springify()}>
-          <View style={styles.totalAmountLeft}>
-            <Text style={styles.totalAmountLabel}>Total Amount</Text>
-            <View style={styles.totalAmountSubtext}>
-              <MaterialIcons name="verified" size={14} color={Colors.primary} />
-              <Text style={styles.totalAmountSubLabel}>All inclusive pricing</Text>
-            </View>
+        <View style={styles.bottomShadow} />
+        <View style={styles.totalContainer}>
+          <Text style={styles.totalLabel}>Total Amount</Text>
+          <View style={styles.totalAmountContainer}>
+            <Text style={styles.totalAmount}>
+              ${price.total.toFixed(2)} {price.currency || 'USD'}
+            </Text>
+            {isLoadingPricing && (
+              <Text style={styles.pricingStatus}>Updating...</Text>
+            )}
+            {backendPricing && (
+              <Text style={styles.pricingStatus}>✓ Live pricing</Text>
+            )}
           </View>
-          
-          <View style={styles.totalAmountRight}>
-            <Text style={styles.totalAmountValue}>${price.total.toFixed(2)}</Text>
-            <View style={styles.savingsIndicator}>
-              <Text style={styles.savingsText}>Save $25</Text>
-            </View>
-          </View>
-        </Animated.View>
-        
-        <View style={styles.bottomButtons}>
-          <TouchableOpacity 
+        </View>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
             style={styles.cancelButton}
-            onPress={() => navigation.goBack()}
+            onPress={handleCancelOrder}
           >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+            <Text style={styles.cancelButtonText}>
+              {createdOrder ? 'Cancel Order' : 'Cancel'}
+            </Text>
           </TouchableOpacity>
-          
-          <Animated.View style={[buttonAnimatedStyle, styles.payButtonContainer]}>
+          <Animated.View style={[styles.payButtonWrapper, buttonAnimatedStyle]}>
             <TouchableOpacity
-              style={[styles.premiumPayButton, isProcessing && styles.payButtonProcessing]}
+              style={[styles.payButton, isProcessing && styles.payButtonProcessing]}
               onPress={handleStartRequest}
               disabled={isProcessing}
+              activeOpacity={0.8}
             >
-              {/* Premium glow effect */}
-              <View style={styles.payButtonGlow} />
-              
               <LinearGradient
-                colors={isProcessing ? ['#E0E0E0', '#D0D0D0'] : [Colors.primary, '#00A896', '#667eea']}
+                colors={isProcessing ? ['#999', '#777'] : [Colors.primary, '#00A896']}
                 style={styles.payButtonGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                locations={[0, 0.6, 1]}
               >
-                {/* Shimmer effect on button */}
-                <Animated.View style={[styles.buttonShimmer, shimmerStyle]} />
-                
                 {isProcessing ? (
                   <View style={styles.processingContainer}>
                     <Animated.View 
-                      style={styles.premiumProcessingDot}
-                      entering={ZoomIn.springify()}
+                      style={styles.processingDot}
+                      entering={FadeIn}
                     />
-                    <Text style={styles.payButtonText}>Finding Premium Movers...</Text>
+                    <Text style={styles.payButtonText}>Processing...</Text>
                   </View>
                 ) : (
                   <>
-                    <View style={styles.payButtonContent}>
-                      <Text style={styles.payButtonText}>Pay & Find Movers</Text>
-                      <Text style={styles.payButtonSubtext}>Guaranteed quality service</Text>
-                    </View>
-                    <View style={styles.payButtonIcon}>
-                      <Ionicons name="arrow-forward" size={22} color="white" />
-                    </View>
+                    <Text style={styles.payButtonText}>Pay & Find Movers</Text>
+                    <Icon name="arrow-right" type="Feather" size={18} color="white" />
                   </>
                 )}
               </LinearGradient>
@@ -531,200 +626,112 @@ const MovingOrderSummary: React.FC<MovingOrderSummaryProps> = ({
 };
 
 const styles = StyleSheet.create({
+  // Main Screen Styles
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
-  headerWrapper: {
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  shimmerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: 100,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    opacity: 0.6,
-  },
-  statusBarSpace: {
-    height: STATUS_BAR_HEIGHT,
+    backgroundColor: '#F8F9FA',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 10,
-    paddingBottom: 20,
+    position: 'relative',
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 24,
     paddingHorizontal: 20,
+    backgroundColor: 'white',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: 'hidden',
+  headerGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
-  headerButtonBlur: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  headerTitleContainer: {
-    flex: 1,
+  headerContent: {
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
-    fontFamily: Fonts.SFProDisplay.Bold,
-    color: 'white',
-    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
-  headerTitleItalic: {
-    fontFamily: Fonts.PlayfairDisplay.Variable,
+  headerTitleSpecial: {
+    fontFamily: Fonts.PlayfairDisplay?.Variable || 'System',
+    fontWeight: '400',
     fontStyle: 'italic',
+    color: Colors.primary,
   },
   headerSubtitle: {
     fontSize: 14,
-    fontFamily: Fonts.SFProDisplay.Regular,
-    color: 'rgba(255,255,255,0.8)',
-    textAlign: 'center',
-    marginTop: 2,
+    color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay?.Regular || 'System',
   },
-  headerPlaceholder: {
-    width: 40,
-  },
-  headerAccentLine: {
-    width: 30,
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    borderRadius: 1,
-    marginTop: 8,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
+  closeButton: {
+    position: 'absolute',
+    right: 20,
+    top: Platform.OS === 'ios' ? 60 : 40,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F0F0',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 20,
   },
   section: {
     marginBottom: 24,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
   sectionTitle: {
-    fontSize: 16,
-    fontFamily: Fonts.SFProDisplay.SemiBold,
+    fontSize: 18,
+    fontWeight: '600',
     color: Colors.textPrimary,
-    marginLeft: 8,
-    flex: 1,
+    letterSpacing: -0.2,
   },
-  sectionIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary + '15',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  sectionBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionBadgeText: {
-    fontSize: 12,
-    color: 'white',
-    fontFamily: Fonts.SFProDisplay.Bold,
+  sectionTitleSpecial: {
+    fontFamily: Fonts.PlayfairDisplay?.Variable || 'System',
+    fontWeight: '400',
+    fontStyle: 'italic',
+    color: Colors.primary,
   },
   serviceCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'white',
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.05)',
-  },
-  premiumServiceCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 24,
-    borderRadius: 20,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(102, 126, 234, 0.1)',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  cardBlurOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 40,
-    backgroundColor: 'rgba(255,255,255,0.5)',
+    shadowRadius: 16,
+    elevation: 4,
   },
   serviceIcon: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: Colors.primary + '20',
+    backgroundColor: Colors.primary + '12',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
-  },
-  serviceIconGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  premiumIndicator: {
-    backgroundColor: Colors.primary + '10',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
-    alignSelf: 'flex-start',
-  },
-  premiumText: {
-    fontSize: 11,
-    fontFamily: Fonts.SFProDisplay.SemiBold,
-    color: Colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  floatingDot: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.primary,
+    marginRight: 20,
   },
   serviceInfo: {
     flex: 1,
@@ -746,16 +753,14 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   routeCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'white',
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.05)',
+    shadowRadius: 16,
+    elevation: 4,
   },
   routeItem: {
     flexDirection: 'row',
@@ -765,7 +770,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.primary + '08',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -792,114 +797,86 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     marginVertical: 8,
   },
-  inventoryCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  inventoryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  inventoryIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  inventoryName: {
-    flex: 1,
-    fontSize: 16,
-    color: Colors.textPrimary,
-  },
-  inventoryQuantity: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  servicesCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  serviceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  serviceItemIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  serviceItemInfo: {
-    flex: 1,
-  },
-  serviceItemTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  serviceItemDescription: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-  },
-  serviceItemPrice: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
   instructionsCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 16,
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.05)',
+    shadowRadius: 16,
+    elevation: 4,
   },
-  instructionsText: {
+  instructionsList: {
+    marginBottom: 16,
+  },
+  instructionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  instructionText: {
+    fontSize: 16,
+    color: Colors.textPrimary,
+    marginLeft: 12,
+  },
+  notesSection: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: 16,
+  },
+  notesLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  notesText: {
     fontSize: 16,
     color: Colors.textPrimary,
     lineHeight: 24,
   },
-  priceCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+  inventoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -8,
+  },
+  inventoryItem: {
+    width: '50%',
+    paddingHorizontal: 8,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inventoryIcon: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
+    backgroundColor: Colors.primary + '10',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  inventoryName: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  inventoryQuantity: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  priceCard: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.05)',
+    shadowRadius: 16,
+    elevation: 4,
   },
   priceRow: {
     flexDirection: 'row',
@@ -934,9 +911,17 @@ const styles = StyleSheet.create({
   timeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${Colors.primary}10`,
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: Colors.primary + '08',
+    padding: 20,
+    borderRadius: 20,
+  },
+  timeIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary + '12',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   timeInfo: {
     flex: 1,
@@ -952,249 +937,102 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
-  timeIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.primary + '15',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  instructionsList: {
-    // Container for instructions list (no specific styles needed)
-  },
-  instructionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  instructionText: {
-    fontSize: 14,
-    fontFamily: Fonts.SFProDisplay.Medium,
-    color: Colors.textPrimary,
-    marginLeft: 8,
-  },
-  notesSection: {
-    paddingVertical: 8,
-  },
-  notesLabel: {
-    fontSize: 14,
-    fontFamily: Fonts.SFProDisplay.Medium,
-    color: Colors.textSecondary,
-    marginBottom: 8,
-  },
-  notesText: {
-    fontSize: 15,
-    fontFamily: Fonts.SFProDisplay.Regular,
-    color: Colors.textPrimary,
-    lineHeight: 22,
-    backgroundColor: '#F8F8F8',
-    padding: 12,
-    borderRadius: 8,
-  },
-  inventoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  inventoryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: Colors.surface,
-    borderRadius: 8,
-    marginBottom: 8,
-    flex: 1,
-    minWidth: '45%',
-  },
-  inventoryIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary + '20',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  inventoryName: {
-    flex: 1,
-    fontSize: 14,
-    color: Colors.textPrimary,
-    fontWeight: '500',
-  },
-  inventoryQuantity: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
   bottomSection: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
+    backgroundColor: 'white',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingTop: 20,
+    paddingHorizontal: 20,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 20,
-    elevation: 12,
-    position: 'relative',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    elevation: 10,
   },
-  bottomBlurOverlay: {
+  bottomShadow: {
     position: 'absolute',
-    top: 0,
+    top: -20,
     left: 0,
     right: 0,
-    height: 30,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    height: 20,
+    backgroundColor: 'transparent',
   },
-  totalAmountDisplay: {
+  totalContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
-    paddingHorizontal: 4,
-    paddingVertical: 8,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
-  totalAmountLeft: {
-    flex: 1,
-  },
-  totalAmountLabel: {
+  totalLabel: {
     fontSize: 16,
-    fontFamily: Fonts.SFProDisplay.Medium,
     color: Colors.textSecondary,
-    marginBottom: 4,
+    fontFamily: Fonts.SFProDisplay?.Regular || 'System',
   },
-  totalAmountSubtext: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  totalAmountSubLabel: {
-    fontSize: 12,
-    fontFamily: Fonts.SFProDisplay.Regular,
-    color: Colors.primary,
-    marginLeft: 4,
-  },
-  totalAmountRight: {
+  totalAmountContainer: {
     alignItems: 'flex-end',
   },
-  totalAmountValue: {
+  totalAmount: {
     fontSize: 28,
-    fontFamily: Fonts.SFProDisplay.Bold,
+    fontWeight: '700',
     color: Colors.primary,
-    marginBottom: 2,
+    letterSpacing: -0.5,
   },
-  savingsIndicator: {
-    backgroundColor: '#10B981',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
+  pricingStatus: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
-  savingsText: {
-    fontSize: 10,
-    fontFamily: Fonts.SFProDisplay.SemiBold,
-    color: 'white',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  bottomButtons: {
+  buttonContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
   },
   cancelButton: {
     flex: 0.35,
+    backgroundColor: '#F5F5F5',
     paddingVertical: 16,
-    borderRadius: 25,
-    backgroundColor: '#F8F8F8',
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
   },
   cancelButtonText: {
     fontSize: 16,
-    fontFamily: Fonts.SFProDisplay.Medium,
+    fontWeight: '600',
     color: Colors.textSecondary,
+    fontFamily: Fonts.SFProDisplay?.Medium || 'System',
   },
-  payButtonContainer: {
+  payButtonWrapper: {
     flex: 0.65,
   },
   payButton: {
-    borderRadius: 25,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  premiumPayButton: {
-    borderRadius: 28,
+    borderRadius: 16,
+    overflow: 'hidden',
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
-    elevation: 12,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  payButtonGlow: {
-    position: 'absolute',
-    top: -10,
-    left: -10,
-    right: -10,
-    bottom: -10,
-    backgroundColor: Colors.primary + '20',
-    borderRadius: 35,
-    opacity: 0.5,
+    elevation: 8,
   },
   payButtonProcessing: {
-    shadowOpacity: 0.1,
+    shadowOpacity: 0,
   },
   payButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    borderRadius: 28,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  buttonShimmer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: 50,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    opacity: 0.7,
-  },
-  payButtonContent: {
-    flex: 1,
+    justifyContent: 'center',
+    paddingVertical: 16,
   },
   payButtonText: {
     color: 'white',
     fontSize: 16,
-    fontFamily: Fonts.SFProDisplay.Bold,
-    marginBottom: 2,
-  },
-  payButtonSubtext: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 11,
-    fontFamily: Fonts.SFProDisplay.Regular,
-  },
-  payButtonIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontWeight: '600',
+    marginRight: 8,
+    fontFamily: Fonts.SFProDisplay?.Semibold || 'System',
+    letterSpacing: -0.3,
   },
   processingContainer: {
     flexDirection: 'row',
@@ -1207,18 +1045,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     marginRight: 12,
   },
-  premiumProcessingDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: 'white',
-    marginRight: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
-  },
 });
 
-export default MovingOrderSummary; 
+export default MovingOrderSummary;

@@ -21,6 +21,7 @@ import Animated, {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '../../config/colors';
 import { Text, Button } from '../../ui';
+import servicesService, { ServiceBookingRequest, PricingResponse, Order } from '../../services/servicesService';
 
 // Safe window dimensions
 const windowDims = Dimensions.get('window');
@@ -48,13 +49,18 @@ const StandardOrderSummary: React.FC<StandardOrderSummaryProps> = ({
     deliveryWindow,
     specialInstructions = [],
     specialNotes,
-    serviceType 
+    serviceType,
+    basePricing = 0,
+    distanceKm = 0
   } = route.params;
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [aiMeasurements, setAiMeasurements] = useState(null);
   const [currentStep, setCurrentStep] = useState('Preparing analysis...');
+  const [backendPricing, setBackendPricing] = useState<PricingResponse | null>(null);
+  const [isLoadingPricing, setIsLoadingPricing] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
   
   const buttonScale = useSharedValue(1);
   const analysisProgress = useSharedValue(0);
@@ -93,6 +99,58 @@ const StandardOrderSummary: React.FC<StandardOrderSummaryProps> = ({
     });
   }, []);
 
+  // Load backend pricing
+  useEffect(() => {
+    const loadBackendPricing = async () => {
+      if (!startLocation || !destination || !startLocationCoords) {
+        console.log('📦 StandardOrderSummary: Missing location data for pricing');
+        return;
+      }
+
+      try {
+        setIsLoadingPricing(true);
+        console.log('📦 StandardOrderSummary: Loading backend pricing...');
+
+        const pricingRequest = {
+          pickupLocation: servicesService.mapToServiceLocation(startLocation, startLocationCoords),
+          dropoffLocation: servicesService.mapToServiceLocation(
+            destination.address || destination.name || 'Destination',
+            { latitude: destination.coordinate?.latitude, longitude: destination.coordinate?.longitude }
+          ),
+          packageDetails: servicesService.mapToPackageDetails({
+            description: 'Standard delivery package - Next day service',
+            packageSize: 'medium',
+            specialInstructions,
+            fragile: specialInstructions.includes('fragile'),
+            weight: aiMeasurements?.weight || 2.5,
+            dimensions: aiMeasurements ? {
+              length: aiMeasurements.depth,
+              width: aiMeasurements.width,
+              height: aiMeasurements.height
+            } : undefined
+          }),
+          scheduledPickupTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Next day
+          additionalServices: specialInstructions,
+          specialInstructions: specialNotes || specialInstructions.join(', ')
+        };
+
+        const pricing = await servicesService.calculatePricing('standard-delivery', pricingRequest);
+        setBackendPricing(pricing);
+        console.log('✅ Standard pricing loaded:', pricing.pricing.totalAmount);
+      } catch (error) {
+        console.error('❌ Failed to load Standard pricing:', error);
+      } finally {
+        setIsLoadingPricing(false);
+      }
+    };
+
+    // Load pricing after AI analysis completes
+    if (!isAnalyzing && aiMeasurements) {
+      const timer = setTimeout(loadBackendPricing, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isAnalyzing, aiMeasurements, startLocation, destination, startLocationCoords, specialInstructions, specialNotes]);
+
   const generateAIMeasurements = () => {
     // Generate realistic measurements based on standard package size
     const baseSizes = {
@@ -117,10 +175,24 @@ const StandardOrderSummary: React.FC<StandardOrderSummaryProps> = ({
 
   // Calculate price based on measurements and delivery window
   const calculatePrice = () => {
+    // Use backend pricing if available
+    if (backendPricing) {
+      return {
+        base: backendPricing.pricing.baseFee,
+        size: backendPricing.pricing.distanceFee || 0,
+        window: 0, // Standard delivery doesn't have time window surcharges
+        instructions: backendPricing.pricing.surcharges?.reduce((sum, s) => sum + (s.amount || 0), 0) || 0,
+        total: backendPricing.pricing.totalAmount,
+        currency: backendPricing.pricing.currency || 'USD',
+        isBackendPricing: true
+      };
+    }
+
+    // Fallback to frontend calculation
     if (!aiMeasurements) return { base: 0, size: 0, window: 0, instructions: 0, total: 0 };
     
-    // Base price for standard delivery
-    let basePrice = 12;
+    // Use base pricing from route params (calculated in HomeScreen)
+    let basePrice = basePricing || 12;
     
     // Size calculation (volume-based)
     const volume = aiMeasurements.width * aiMeasurements.height * aiMeasurements.depth;
@@ -136,18 +208,22 @@ const StandardOrderSummary: React.FC<StandardOrderSummaryProps> = ({
     // Special instructions fee
     const instructionsFee = specialInstructions.length * 1.5;
     
+    const total = basePrice + sizeAdjustment + weightAdjustment + windowAdjustment + instructionsFee;
+    
     return {
       base: basePrice,
       size: sizeAdjustment + weightAdjustment,
       window: windowAdjustment,
       instructions: instructionsFee,
-      total: basePrice + sizeAdjustment + weightAdjustment + windowAdjustment + instructionsFee
+      total: Math.round(total * 100) / 100,
+      currency: 'USD',
+      isBackendPricing: false
     };
   };
 
   const price = calculatePrice();
 
-  const handleStartRequest = () => {
+  const handleStartRequest = async () => {
     console.log('📦 StandardOrderSummary: Start request button pressed');
     
     setIsProcessing(true);
@@ -155,16 +231,59 @@ const StandardOrderSummary: React.FC<StandardOrderSummaryProps> = ({
       buttonScale.value = withSpring(1, { duration: 200 });
     });
 
-    // Simulate processing
-    setTimeout(() => {
-      console.log('📦 StandardOrderSummary: Navigating to DriverSearch');
+    try {
+      // Create order in backend
+      const bookingRequest: ServiceBookingRequest = {
+        pickupLocation: servicesService.mapToServiceLocation(startLocation, startLocationCoords),
+        dropoffLocation: servicesService.mapToServiceLocation(
+          destination.address || destination.name || 'Destination',
+          { latitude: destination.coordinate?.latitude, longitude: destination.coordinate?.longitude }
+        ),
+        packageDetails: servicesService.mapToPackageDetails({
+          description: 'Standard delivery package - Next day service',
+          packageSize: 'medium',
+          specialInstructions,
+          fragile: specialInstructions.includes('fragile'),
+          weight: aiMeasurements?.weight,
+          dimensions: aiMeasurements ? {
+            length: aiMeasurements.depth,
+            width: aiMeasurements.width,
+            height: aiMeasurements.height
+          } : undefined
+        }),
+        priority: 'normal', // Standard delivery is normal priority
+        paymentMethod: 'card', // Default payment method
+        specialInstructions: specialNotes || specialInstructions.join(', '),
+        additionalServices: specialInstructions,
+        pricingDetails: backendPricing || price,
+        scheduledPickupTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // Next day
+      };
+
+      console.log('📦 Creating Standard order in backend...', bookingRequest);
+      
+      const result = await servicesService.bookService('standard-delivery', bookingRequest);
+      setCreatedOrder(result.order);
+      
+      console.log('✅ Standard order created successfully:', result.order._id);
+      
+      // Navigate to DriverSearch with order details
       navigation.navigate('DriverSearch', {
         ...route.params,
         measurements: aiMeasurements,
         price: price,
+        orderId: result.order._id,
+        order: result.order,
         bookingId: `SD${Date.now()}`,
       });
-    }, 1000);
+      
+    } catch (error: any) {
+      console.error('❌ Failed to create Standard order:', error);
+      
+      // Show error message to user
+      alert('Failed to create order. Please try again.');
+      
+      setIsProcessing(false);
+    }
   };
 
   const buttonAnimatedStyle = useAnimatedStyle(() => {
@@ -380,10 +499,21 @@ const StandardOrderSummary: React.FC<StandardOrderSummaryProps> = ({
           <View style={styles.sectionHeader}>
             <MaterialIcons name="receipt" size={20} color={Colors.primary} />
             <Text style={styles.sectionTitle}>Price Breakdown</Text>
+            {backendPricing ? (
+              <View style={styles.pricingStatus}>
+                <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                <Text style={styles.pricingStatusText}>Live pricing</Text>
+              </View>
+            ) : isLoadingPricing ? (
+              <View style={styles.pricingStatus}>
+                <Ionicons name="refresh" size={16} color="#FF9800" />
+                <Text style={styles.pricingStatusText}>Updating...</Text>
+              </View>
+            ) : null}
           </View>
           <View style={styles.priceCard}>
             <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Base delivery</Text>
+              <Text style={styles.priceLabel}>Base delivery ({distanceKm.toFixed(1)}km)</Text>
               <Text style={styles.priceValue}>${price.base.toFixed(2)}</Text>
             </View>
             {price.size > 0 && (
@@ -607,6 +737,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.textPrimary,
+    flex: 1,
+  },
+  pricingStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pricingStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#4CAF50',
   },
   analysisCard: {
     backgroundColor: Colors.white,
