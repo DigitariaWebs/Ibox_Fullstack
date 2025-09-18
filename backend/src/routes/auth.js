@@ -1,7 +1,6 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import authController from '../controllers/authController.js';
-import googleAuthRoutes from './googleAuth.js';
 import { protect, optionalAuth, rateLimitByUser } from '../middleware/auth.js';
 import { 
   authValidation, 
@@ -298,7 +297,5 @@ router.use((err, req, res, next) => {
   });
 });
 
-// Mount Google auth routes
-router.use('/', googleAuthRoutes);
 
 export default router;

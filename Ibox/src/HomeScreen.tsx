@@ -77,6 +77,8 @@ const HomeScreen: React.FC = () => {
   const [startLocationCoords, setStartLocationCoords] = useState<{latitude: number; longitude: number} | null>(null);
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [showBackButton, setShowBackButton] = useState(false);
+  const [basePricing, setBasePricing] = useState<number>(0);
+  const [distanceKm, setDistanceKm] = useState<number>(0);
   
   // Driver tracking states
   const [trackingDriver, setTrackingDriver] = useState<any>(null);
@@ -274,6 +276,26 @@ const HomeScreen: React.FC = () => {
     }
 
     return points;
+  };
+
+  // Calculate distance between two coordinates (Haversine formula)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in kilometers
+  };
+
+  // Calculate base pricing from distance
+  const calculateBasePricing = (distanceKm: number): number => {
+    const baseFee = 5; // Base service fee
+    const distanceFee = Math.max(3, distanceKm * 1.5); // Minimum $3, then $1.5/km
+    return baseFee + distanceFee;
   };
 
   const searchPlaces = async (query: string) => {
@@ -597,16 +619,23 @@ const HomeScreen: React.FC = () => {
         ? startLocationCoords
         : fallbackPickupCoords;
     
+    // Ensure startLocation is always set
+    const finalStartLocation = (startLocation && startLocation.trim() && startLocation.trim() !== '') 
+      ? startLocation.trim() 
+      : 'Current Location';
+    
     const baseParams = {
       service: selectedService,
-      startLocation,
+      startLocation: finalStartLocation,
       startLocationCoords: pickupCoordsToSend,
       destination: selectedDestination,
+      basePricing: basePricing,
+      distanceKm: distanceKm,
     };
 
     console.log('🚀 HomeScreen: Sending params to service flow:', {
       service: selectedService,
-      startLocation,
+      startLocation: finalStartLocation,
       startLocationCoords: pickupCoordsToSend,
       hasDestination: !!selectedDestination,
     });
@@ -621,9 +650,6 @@ const HomeScreen: React.FC = () => {
         break;
       case 'moving':
         navigation.navigate('MovingFlow', baseParams);
-        break;
-      case 'storage':
-        navigation.navigate('StorageFlow', baseParams);
         break;
       default:
         // Fallback to original flow for any undefined services
@@ -741,15 +767,30 @@ const HomeScreen: React.FC = () => {
     };
   };
 
-  const calculateDistance = (coord1: {latitude: number; longitude: number}, coord2: {latitude: number; longitude: number}) => {
-    const R = 6371; // Earth's radius in km
-    const dLat = (coord2.latitude - coord1.latitude) * Math.PI / 180;
-    const dLon = (coord2.longitude - coord1.longitude) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(coord1.latitude * Math.PI / 180) * Math.cos(coord2.latitude * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c; // Distance in km
+  // Calculate distance using Google Distance Matrix API
+  const calculateDistanceWithGoogle = async (origin: {latitude: number; longitude: number}, destination: {latitude: number; longitude: number}): Promise<number> => {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin.latitude},${origin.longitude}&destinations=${destination.latitude},${destination.longitude}&units=metric&key=${GOOGLE_API_KEY}`
+      );
+      
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
+        const distanceInMeters = data.rows[0].elements[0].distance.value;
+        const distanceInKm = distanceInMeters / 1000;
+        console.log('🗺️ Google Distance Matrix:', distanceInKm.toFixed(2), 'km');
+        return distanceInKm;
+      } else {
+        console.log('⚠️ Distance Matrix API error, falling back to Haversine');
+        // Fallback to Haversine formula
+        return calculateDistance(origin.latitude, origin.longitude, destination.latitude, destination.longitude);
+      }
+    } catch (error) {
+      console.error('❌ Error calculating distance with Google API:', error);
+      // Fallback to Haversine formula
+      return calculateDistance(origin.latitude, origin.longitude, destination.latitude, destination.longitude);
+    }
   };
 
   const startDriverMovementSimulation = (initialLocation: {latitude: number; longitude: number}, initialETA: number, targetCoords: {latitude: number; longitude: number}) => {
@@ -856,13 +897,6 @@ const HomeScreen: React.FC = () => {
       icon: 'local-shipping',
       iconFamily: 'MaterialIcons',
       color: '#45B7D1',
-    },
-    {
-      id: 'storage',
-      title: 'Storage Service',
-      icon: 'archive',
-      iconFamily: 'Ionicons',
-      color: '#96CEB4',
     },
   ];
 
@@ -975,17 +1009,39 @@ const HomeScreen: React.FC = () => {
           // This would typically close the modal, but since it's always visible when no service is selected,
           // we don't need to do anything here
         }}
-        onLocationSelect={(location) => {
+        onLocationSelect={async (location) => {
           // Handle location selection
           console.log('Location selected:', location);
+          
+          let destinationCoords = {
+            latitude: location.latitude || currentLocation.latitude,
+            longitude: location.longitude || currentLocation.longitude,
+          };
+          
+          // If we have a place_id, fetch real coordinates from Google Place Details
+          if (location.place_id) {
+            try {
+              const response = await fetch(
+                `https://maps.googleapis.com/maps/api/place/details/json?place_id=${location.place_id}&fields=geometry,name,formatted_address&key=${GOOGLE_API_KEY}`
+              );
+              const data = await response.json();
+              
+              if (data.status === 'OK' && data.result.geometry) {
+                destinationCoords = {
+                  latitude: data.result.geometry.location.lat,
+                  longitude: data.result.geometry.location.lng,
+                };
+                console.log('✅ Real coordinates fetched:', destinationCoords);
+              }
+            } catch (error) {
+              console.error('❌ Error fetching place details:', error);
+            }
+          }
           
           // Store the selected destination
           const destinationMarker = {
             id: location.place_id || 'selected-location',
-            coordinate: {
-              latitude: location.latitude || currentLocation.latitude,
-              longitude: location.longitude || currentLocation.longitude,
-            },
+            coordinate: destinationCoords,
             title: location.name || location.description || 'Selected Location',
             description: location.address || location.description || '',
             type: 'destination' as const,
@@ -994,7 +1050,35 @@ const HomeScreen: React.FC = () => {
           setSelectedDestination(destinationMarker);
           setMarkers([destinationMarker]);
           
-          // Show service selection modal
+          // Calculate base distance pricing
+          const pickupCoords = startLocationCoords || {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude
+          };
+          
+          // Calculate distance using Google API
+          calculateDistanceWithGoogle(pickupCoords, destinationMarker.coordinate)
+            .then((calculatedDistance) => {
+              const calculatedBasePricing = calculateBasePricing(calculatedDistance);
+              console.log(`🎯 Base pricing calculated: ${calculatedDistance.toFixed(2)}km = $${calculatedBasePricing.toFixed(2)}`);
+              
+              // Store pricing data
+              setDistanceKm(calculatedDistance);
+              setBasePricing(calculatedBasePricing);
+            })
+            .catch((error) => {
+              console.error('❌ Error calculating distance:', error);
+              // Fallback to simple calculation
+              const fallbackDistance = 5; // Default 5km
+              const fallbackPricing = calculateBasePricing(fallbackDistance);
+              setDistanceKm(fallbackDistance);
+              setBasePricing(fallbackPricing);
+            });
+          
+          // Get directions and show polyline
+          getDirections(pickupCoords, destinationMarker.coordinate);
+          
+          // Show service selection modal with base pricing
           setShowServiceSelection(true);
         }}
       />

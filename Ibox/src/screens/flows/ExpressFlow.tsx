@@ -46,6 +46,9 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
   const [selectedInstructions, setSelectedInstructions] = useState<string[]>([]);
   const [specialNotes, setSpecialNotes] = useState<string>('');
   const [isTransitioning, setIsTransitioning] = useState(false);
+  
+  // Get base pricing from route params
+  const { basePricing = 0, distanceKm = 0 } = route.params || {};
 
   // Animation values
   const progressValue = useSharedValue(0);
@@ -482,7 +485,11 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
       {selectedUrgency && (
         <View style={styles.priceSummary}>
           <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Delivery Speed</Text>
+            <Text style={styles.priceLabel}>Base delivery ({distanceKm.toFixed(1)}km)</Text>
+            <Text style={styles.priceValue}>${basePricing.toFixed(2)}</Text>
+          </View>
+          <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Urgency fee</Text>
             <Text style={styles.priceValue}>
               {urgencyOptions.find(o => o.id === selectedUrgency)?.price || '$0'}
             </Text>
@@ -497,8 +504,9 @@ const ExpressFlow: React.FC<ExpressFlowProps> = ({ navigation, route }) => {
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>
               ${
-                (parseInt(urgencyOptions.find(o => o.id === selectedUrgency)?.price.replace('$', '') || '0') +
-                selectedInstructions.length * 2)
+                (basePricing +
+                parseInt(urgencyOptions.find(o => o.id === selectedUrgency)?.price.replace('$', '') || '0') +
+                selectedInstructions.length * 2).toFixed(2)
               }
             </Text>
           </View>

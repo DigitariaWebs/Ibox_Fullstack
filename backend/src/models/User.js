@@ -44,11 +44,6 @@ const userSchema = new mongoose.Schema({
     enum: ['local', 'google', 'facebook', 'apple'],
     default: 'local'
   },
-  firebaseUid: {
-    type: String,
-    sparse: true, // Allow null values and only enforce uniqueness for non-null
-    index: true
-  },
   googleId: {
     type: String,
     sparse: true

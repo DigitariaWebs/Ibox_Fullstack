@@ -24,7 +24,7 @@ class NotificationService {
         read: false
       });
 
-      // TODO: Integrate with Firebase FCM for mobile push notifications
+      // TODO: Integrate with push notification service for mobile notifications
       console.log(`📱 Push notification sent to user ${userId}: ${title}`);
 
       return true;

@@ -168,7 +168,7 @@ if (process.env.NODE_ENV === 'development') {
         features: {
           realTimeDelivery: 'Socket.io integration',
           offlineStorage: 'Redis-based storage with 30-day retention',
-          pushNotifications: 'Firebase FCM integration (TODO)',
+          pushNotifications: 'Push notification service integration (TODO)',
           emailNotifications: 'SMTP integration (TODO)',
           smsNotifications: 'Twilio integration (TODO)'
         },

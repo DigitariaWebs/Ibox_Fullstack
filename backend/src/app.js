@@ -30,6 +30,7 @@ import orderRoutes from './routes/orders.js';
 import uploadRoutes from './routes/upload.js';
 import notificationRoutes from './routes/notifications.js';
 import driverRoutes from './routes/driver.js';
+import serviceRoutes from './routes/services.js';
 
 // Get current directory for ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -223,6 +224,7 @@ app.use(`${API_BASE_PATH}/orders`, orderRoutes);
 app.use(`${API_BASE_PATH}/upload`, uploadRoutes);
 app.use(`${API_BASE_PATH}/notifications`, notificationRoutes);
 app.use(`${API_BASE_PATH}/driver`, driverRoutes);
+app.use(`${API_BASE_PATH}/services`, serviceRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -234,6 +236,8 @@ app.get('/', (req, res) => {
     endpoints: {
       auth: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/auth`,
       driver: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/driver`,
+      services: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/services`,
+      orders: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/orders`,
       health: `${req.protocol}://${req.get('host')}/health`,
       status: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/status`
     }
@@ -270,6 +274,27 @@ if (process.env.NODE_ENV === 'development') {
           notifications: 'GET /driver/notifications',
           earnings: 'GET /driver/earnings',
           docs: 'GET /driver/docs'
+        },
+        services: {
+          getAllServices: 'GET /services',
+          searchServices: 'GET /services/search',
+          getCategories: 'GET /services/categories',
+          getPopular: 'GET /services/popular',
+          getServiceDetails: 'GET /services/:serviceId',
+          checkAvailability: 'GET /services/:serviceId/availability',
+          calculatePricing: 'POST /services/:serviceId/pricing',
+          bookService: 'POST /services/:serviceId/book'
+        },
+        orders: {
+          createOrder: 'POST /orders',
+          getUserOrders: 'GET /orders',
+          getOrderDetails: 'GET /orders/:orderId',
+          updateStatus: 'PUT /orders/:orderId/status',
+          acceptOrder: 'POST /orders/:orderId/accept',
+          cancelOrder: 'DELETE /orders/:orderId',
+          getNearby: 'GET /orders/nearby',
+          rateOrder: 'POST /orders/:orderId/rate',
+          getTracking: 'GET /orders/:orderId/tracking'
         },
         utility: {
           health: 'GET /health',

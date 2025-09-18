@@ -8,6 +8,7 @@ import {
   Dimensions,
   Image,
   Platform,
+  Alert,
 } from 'react-native';
 import Animated, {
   SlideInUp,
@@ -28,6 +29,7 @@ import { Colors } from '../../config/colors';
 import { Fonts } from '../../config/fonts';
 import { Text, Button } from '../../ui';
 import { Icon } from '../../ui/Icon';
+import servicesService, { ServicePricingRequest, ServiceBookingRequest, PricingResponse, Order } from '../../services/servicesService';
 
 // Safe window dimensions
 const windowDims = Dimensions.get('window');
@@ -45,23 +47,38 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
   console.log('⚡ ExpressOrderSummary: Component mounted');
   console.log('⚡ ExpressOrderSummary: Route params received:', Object.keys(route.params || {}));
   
-  const { 
-    service, 
-    startLocation, 
-    startLocationCoords, 
-    destination, 
-    urgency, 
-    packageSize, 
-    specialInstructions = [], 
-    specialNotes,
+  // Destructure route params FIRST
+  const {
+    service,
+    startLocation: rawStartLocation,
+    startLocationCoords,
+    destination,
+    basePricing = 0,
+    distanceKm = 0,
+    urgency,
+    packageSize,
+    specialInstructions = [],
+    specialNotes = '',
     packagePhoto,
-    serviceType 
-  } = route.params;
+    aiAnalysis
+  } = route.params || {};
+
+  // Ensure startLocation is never empty
+  const startLocation = (rawStartLocation && rawStartLocation.trim() && rawStartLocation.trim() !== '') 
+    ? rawStartLocation.trim() 
+    : 'Current Location';
+
+  console.log('🔍 DEBUG: startLocation on mount:', startLocation);
+  console.log('🔍 DEBUG: destination on mount:', destination);
+  console.log('🔍 DEBUG: startLocationCoords on mount:', startLocationCoords);
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [aiMeasurements, setAiMeasurements] = useState(null);
   const [currentStep, setCurrentStep] = useState('Preparing analysis...');
+  const [backendPricing, setBackendPricing] = useState<PricingResponse | null>(null);
+  const [isLoadingPricing, setIsLoadingPricing] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
   
   const buttonScale = useSharedValue(1);
   const analysisProgress = useSharedValue(0);
@@ -100,6 +117,54 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
       });
   }, []);
 
+  // Load backend pricing
+  useEffect(() => {
+    const loadBackendPricing = async () => {
+      if (startLocation && destination && startLocationCoords && !backendPricing && !isLoadingPricing) {
+        setIsLoadingPricing(true);
+        
+        try {
+          const pricingRequest: ServicePricingRequest = {
+            pickupLocation: servicesService.mapToServiceLocation(
+              startLocation,
+              startLocationCoords
+            ),
+            dropoffLocation: servicesService.mapToServiceLocation(
+              destination.address || destination.name || 'Destination',
+              { latitude: destination.coordinate?.latitude, longitude: destination.coordinate?.longitude }
+            ),
+            packageDetails: servicesService.mapToPackageDetails({
+              description: 'Express delivery package - Standard courier service',
+              packageSize,
+              specialInstructions,
+              fragile: specialInstructions.includes('fragile')
+            }),
+            additionalServices: specialInstructions
+          };
+
+          console.log('💰 Loading backend pricing for Express delivery...', pricingRequest);
+          
+          // Try to get Express service pricing (fallback to hardcoded service ID)
+          const pricing = await servicesService.calculatePricing('express-delivery', pricingRequest);
+          setBackendPricing(pricing);
+          console.log('✅ Backend pricing loaded:', pricing.pricing.totalAmount, pricing.pricing.currency);
+          
+        } catch (error) {
+          console.error('❌ Failed to load backend pricing:', error);
+          // Continue with frontend pricing as fallback
+        } finally {
+          setIsLoadingPricing(false);
+        }
+      }
+    };
+
+    // Load pricing after a short delay to let the analysis start
+    // Temporarily disable backend pricing to use frontend calculation
+    console.log('💰 Backend pricing temporarily disabled - using frontend calculation');
+    // const timer = setTimeout(loadBackendPricing, 2000);
+    // return () => clearTimeout(timer);
+  }, [startLocation, destination, startLocationCoords, specialInstructions, packageSize]);
+
   const generateAIMeasurements = () => {
     // Generate realistic measurements based on selected package size
     const baseSizes = {
@@ -122,62 +187,182 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
     };
   };
 
-  // Calculate price based on measurements and urgency
+  // Distance is now calculated in HomeScreen using Google Distance Matrix API
+
+  // Urgency mappings at component level
+  const urgencyPricing = {
+    'express_1h': 25,    // Lightning Fast: +$25
+    'express_2h': 18,    // Express: +$18  
+    'same_day': 12,      // Same Day: +$12
+  };
+  const urgencyLabels = {
+    'express_1h': 'Lightning Fast',
+    'express_2h': 'Express',
+    'same_day': 'Same Day',
+  };
+  const urgencyFee = urgencyPricing[urgency] || 0;
+  const urgencyLabel = urgencyLabels[urgency] || 'Express';
+
+  // Calculate price following the user scenario
   const calculatePrice = () => {
-    if (!aiMeasurements) return { base: 0, urgency: 0, size: 0, total: 0 };
+    // Use backend pricing if available (prioritize backend over frontend)
+    if (backendPricing) {
+      const pricing = backendPricing.pricing;
+      return {
+        base: pricing.baseFee,
+        urgency: pricing.surcharges.find(s => s.type.includes('peak') || s.type.includes('urgent'))?.amount || 0,
+        instructions: pricing.surcharges.filter(s => !s.type.includes('peak') && !s.type.includes('urgent')).reduce((sum, s) => sum + s.amount, 0),
+        ai: Math.floor(Math.random() * 4) + 2, // Random $2-5 AI fee
+        total: pricing.totalAmount,
+        currency: pricing.currency,
+        distanceKm: distanceKm,
+        breakdown: pricing,
+        isBackendPricing: true
+      };
+    }
+
+    // Frontend calculation following user scenario:
+    // 1. Start with base distance pricing from HomeScreen
+    const baseDistancePricing = basePricing || 0;
     
-    // Base price
-    let basePrice = 12;
+    // 2. Add urgency fee based on selected option
     
-    // Size calculation (volume-based)
-    const volume = aiMeasurements.width * aiMeasurements.height * aiMeasurements.depth;
-    const sizeMultiplier = Math.max(1, Math.ceil(volume / 5000)); // Every 5000 cm³
-    const sizeAdjustment = (sizeMultiplier - 1) * 3;
-    
-    // Weight adjustment
-    const weightAdjustment = Math.max(0, (aiMeasurements.weight - 1) * 2);
-    
-    // Urgency pricing
-    const urgencyPricing = {
-      '1h': 25,
-      '2h': 15,
-      'same-day': 0,
-    };
-    
-    const urgencyFee = urgencyPricing[urgency?.id] || 0;
-    
-    // Special instructions fee
+    // 3. Add instruction fees ($2 per instruction)
     const instructionsFee = specialInstructions.length * 2;
     
+    // 4. Add AI Assistant mockup fee ($2-5 random)
+    const aiFee = Math.floor(Math.random() * 4) + 2; // Random between 2-5
+    
+    // 5. Calculate total
+    const total = baseDistancePricing + urgencyFee + instructionsFee + aiFee;
+    
     return {
-      base: basePrice,
-      size: sizeAdjustment + weightAdjustment,
+      base: Math.round(baseDistancePricing * 100) / 100,
       urgency: urgencyFee,
       instructions: instructionsFee,
-      total: basePrice + sizeAdjustment + weightAdjustment + urgencyFee + instructionsFee
+      ai: aiFee,
+      total: Math.round(total * 100) / 100,
+      currency: 'USD',
+      distanceKm: distanceKm,
+      isBackendPricing: false
     };
   };
 
   const price = calculatePrice();
 
-  const handleStartRequest = () => {
+  const handleStartRequest = async () => {
     console.log('⚡ ExpressOrderSummary: Start request button pressed');
+    console.log('🔍 DEBUG: startLocation:', startLocation);
+    console.log('🔍 DEBUG: destination:', destination);
+    console.log('🔍 DEBUG: startLocationCoords:', startLocationCoords);
+    console.log('🔍 DEBUG: All route params:', Object.keys(route.params || {}));
     
+    if (!startLocation || !destination || !startLocationCoords) {
+      console.log('❌ Missing location data - startLocation:', !!startLocation, 'destination:', !!destination, 'startLocationCoords:', !!startLocationCoords);
+      Alert.alert('Error', 'Missing location information. Please try again.');
+      return;
+    }
+
     setIsProcessing(true);
     buttonScale.value = withSpring(0.95, { duration: 100 }, () => {
       buttonScale.value = withSpring(1, { duration: 200 });
     });
 
-    // Simulate processing
-    setTimeout(() => {
-      console.log('⚡ ExpressOrderSummary: Navigating to DriverSearch');
+    try {
+      // Create order in backend
+      const bookingRequest: ServiceBookingRequest = {
+        pickupLocation: servicesService.mapToServiceLocation(
+          startLocation,
+          startLocationCoords
+        ),
+        dropoffLocation: servicesService.mapToServiceLocation(
+          destination.address || destination.name || 'Destination',
+          { latitude: destination.coordinate?.latitude, longitude: destination.coordinate?.longitude }
+        ),
+        packageDetails: servicesService.mapToPackageDetails({
+          description: 'Express delivery package - Standard courier service',
+          packageSize,
+          specialInstructions,
+          fragile: specialInstructions.includes('fragile'),
+          weight: aiMeasurements?.weight,
+          dimensions: aiMeasurements ? {
+            length: aiMeasurements.length,
+            width: aiMeasurements.width,
+            height: aiMeasurements.height
+          } : undefined
+        }),
+        priority: servicesService.mapUrgencyToPriority(urgency || 'same_day'),
+        paymentMethod: 'card', // Default payment method
+        specialInstructions: specialNotes || specialInstructions.join(', '),
+        additionalServices: specialInstructions,
+        pricingDetails: backendPricing || price
+      };
+
+      console.log('📦 Creating Express order in backend...', bookingRequest);
+      
+      const result = await servicesService.bookService('express-delivery', bookingRequest);
+      setCreatedOrder(result.order);
+      
+      console.log('✅ Express order created successfully:', result.order._id);
+      
+      // Navigate to DriverSearch with order details
       navigation.navigate('DriverSearch', {
         ...route.params,
         measurements: aiMeasurements,
         price: price,
+        orderId: result.order._id,
+        order: result.order,
         bookingId: `EX${Date.now()}`,
       });
-    }, 1000);
+      
+    } catch (error: any) {
+      console.error('❌ Failed to create Express order:', error);
+      Alert.alert(
+        'Order Failed', 
+        error.message || 'Failed to create your order. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancelOrder = async () => {
+    if (!createdOrder) {
+      navigation.goBack();
+      return;
+    }
+
+    Alert.alert(
+      'Cancel Order',
+      'Are you sure you want to cancel this order?',
+      [
+        { text: 'No', style: 'cancel' },
+        { 
+          text: 'Yes, Cancel', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('❌ Cancelling Express order:', createdOrder._id);
+              
+              await servicesService.cancelOrder(createdOrder._id, 'Customer cancellation from order summary');
+              
+              console.log('✅ Express order cancelled successfully');
+              
+              Alert.alert(
+                'Order Cancelled',
+                'Your order has been cancelled successfully.',
+                [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
+              );
+              
+            } catch (error: any) {
+              console.error('❌ Failed to cancel order:', error);
+              Alert.alert('Error', 'Failed to cancel order. Please contact support.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const buttonAnimatedStyle = useAnimatedStyle(() => {
@@ -329,8 +514,8 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
             </View>
             <View style={styles.serviceInfo}>
               <Text style={styles.serviceTitle}>Express Delivery</Text>
-              <Text style={styles.serviceSubtitle}>{urgency?.title || 'Same Day'}</Text>
-              <Text style={styles.serviceDescription}>{urgency?.subtitle || 'Standard express'}</Text>
+              <Text style={styles.serviceSubtitle}>{urgencyLabel}</Text>
+              <Text style={styles.serviceDescription}>Standard express delivery</Text>
             </View>
           </View>
         </Animated.View>
@@ -400,27 +585,25 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
           </View>
           <View style={styles.priceCard}>
             <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Base delivery</Text>
+              <Text style={styles.priceLabel}>Base delivery ({price.distanceKm.toFixed(1)}km)</Text>
               <Text style={styles.priceValue}>${price.base.toFixed(2)}</Text>
             </View>
-            {price.size > 0 && (
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Size & weight adjustment</Text>
-                <Text style={styles.priceValue}>${price.size.toFixed(2)}</Text>
-              </View>
-            )}
             {price.urgency > 0 && (
               <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Urgency fee ({urgency?.title})</Text>
-                <Text style={styles.priceValue}>${price.urgency.toFixed(2)}</Text>
+                <Text style={styles.priceLabel}>Urgency fee ({urgencyLabel})</Text>
+                <Text style={styles.priceValue}>+${price.urgency.toFixed(2)}</Text>
               </View>
             )}
             {price.instructions > 0 && (
               <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Special handling</Text>
-                <Text style={styles.priceValue}>${price.instructions.toFixed(2)}</Text>
+                <Text style={styles.priceLabel}>Special instructions ({specialInstructions.length})</Text>
+                <Text style={styles.priceValue}>+${price.instructions.toFixed(2)}</Text>
               </View>
             )}
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>AI Assistant</Text>
+              <Text style={styles.priceValue}>+${price.ai.toFixed(2)}</Text>
+            </View>
             <View style={styles.priceDivider} />
             <View style={styles.priceRow}>
               <Text style={styles.priceTotalLabel}>Total</Text>
@@ -438,9 +621,9 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
             <View style={styles.timeInfo}>
               <Text style={styles.timeLabel}>Estimated Delivery Time</Text>
               <Text style={styles.timeValue}>
-                {urgency?.id === '1h' && '30-60 minutes'}
-                {urgency?.id === '2h' && '1-2 hours'}
-                {urgency?.id === 'same-day' && '2-4 hours'}
+                {urgency === 'express_1h' && '30-60 minutes'}
+                {urgency === 'express_2h' && '1-2 hours'}
+                {urgency === 'same_day' && '2-4 hours'}
               </Text>
             </View>
           </View>
@@ -452,17 +635,26 @@ const ExpressOrderSummary: React.FC<ExpressOrderSummaryProps> = ({
         <View style={styles.bottomShadow} />
         <View style={styles.totalContainer}>
           <Text style={styles.totalLabel}>Total Amount</Text>
-          <Text style={styles.totalAmount}>${price.total.toFixed(2)}</Text>
+          <View style={styles.totalAmountContainer}>
+            <Text style={styles.totalAmount}>
+              ${price.total.toFixed(2)} {price.currency || 'USD'}
+            </Text>
+            {isLoadingPricing && (
+              <Text style={styles.pricingStatus}>Updating...</Text>
+            )}
+            {backendPricing && (
+              <Text style={styles.pricingStatus}>✓ Live pricing</Text>
+            )}
+          </View>
         </View>
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={styles.cancelButton}
-            onPress={() => {
-              console.log('⚡ ExpressOrderSummary: Cancel button pressed');
-              navigation.navigate('HomeScreen');
-            }}
+            onPress={handleCancelOrder}
           >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+            <Text style={styles.cancelButtonText}>
+              {createdOrder ? 'Cancel Order' : 'Cancel'}
+            </Text>
           </TouchableOpacity>
           <Animated.View style={[styles.payButtonWrapper, buttonAnimatedStyle]}>
             <TouchableOpacity
@@ -980,11 +1172,20 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontFamily: Fonts.SFProDisplay?.Regular || 'System',
   },
+  totalAmountContainer: {
+    alignItems: 'flex-end',
+  },
   totalAmount: {
     fontSize: 28,
     fontWeight: '700',
     color: Colors.primary,
     letterSpacing: -0.5,
+  },
+  pricingStatus: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   buttonContainer: {
     flexDirection: 'row',
