@@ -56,8 +56,8 @@ const userSchema = new mongoose.Schema({
   userType: { 
     type: String, 
     enum: {
-      values: ['customer', 'transporter'],
-      message: 'User type must be either customer or transporter'
+      values: ['customer', 'transporter', 'admin'],
+      message: 'User type must be customer, transporter, or admin'
     },
     required: [true, 'User type is required']
   },
@@ -65,9 +65,17 @@ const userSchema = new mongoose.Schema({
     type: Boolean, 
     default: false 
   },
+  emailVerifiedAt: {
+    type: Date,
+    default: null
+  },
   isPhoneVerified: { 
     type: Boolean, 
     default: false 
+  },
+  phoneVerifiedAt: {
+    type: Date,
+    default: null
   },
   
   // Profile Information
@@ -236,6 +244,193 @@ const userSchema = new mongoose.Schema({
     verificationDate: Date,
     rejectionReason: String,
     
+    // Verification Documents
+    verificationDocuments: {
+      profilePhoto: {
+        type: String, // Base64 encoded image or URL
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            // Check if it's a URL or base64 data
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      driverLicense: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      vehicleFront: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      vehicleBack: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      vehicleLeft: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      vehicleRight: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      vehicleInterior: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      licensePlate: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/i.test(data) || 
+                   /^data:image\/(jpeg|jpg|png|gif|webp);base64,/.test(data);
+          },
+          message: 'Invalid image format'
+        }
+      },
+      insurance: {
+        type: String,
+        validate: {
+          validator: function(data) {
+            if (!data) return true;
+            return /^https?:\/\/.+\.(pdf|jpg|jpeg|png)$/i.test(data) || 
+                   /^data:(image\/(jpeg|jpg|png|gif|webp)|application\/pdf);base64,/.test(data);
+          },
+          message: 'Invalid document format'
+        }
+      }
+    },
+    backgroundCheckConsent: {
+      type: Boolean,
+      default: false
+    },
+    backgroundCheckConsentDate: Date,
+    lastDocumentUpload: Date,
+    
+    // Submission tracking per verification step
+    submissionStatus: {
+      profilePhoto: {
+        submitted: { type: Boolean, default: false },
+        submittedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending'
+        },
+        reviewedAt: Date,
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        rejectionReason: String
+      },
+      phoneVerified: {
+        submitted: { type: Boolean, default: false },
+        submittedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending'
+        },
+        reviewedAt: Date,
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        rejectionReason: String,
+        verifiedAt: Date
+      },
+      driverLicense: {
+        submitted: { type: Boolean, default: false },
+        submittedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending'
+        },
+        reviewedAt: Date,
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        rejectionReason: String
+      },
+      vehiclePhotos: {
+        submitted: { type: Boolean, default: false },
+        submittedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending'
+        },
+        reviewedAt: Date,
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        rejectionReason: String
+      },
+      vehiclePlate: {
+        submitted: { type: Boolean, default: false },
+        submittedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending'
+        },
+        reviewedAt: Date,
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        rejectionReason: String
+      },
+      insurance: {
+        submitted: { type: Boolean, default: false },
+        submittedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+          default: 'pending'
+        },
+        reviewedAt: Date,
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        rejectionReason: String
+      }
+    },
+    
     // Banking details for payments
     bankingDetails: {
       accountHolder: {
@@ -308,6 +503,37 @@ const userSchema = new mongoose.Schema({
       friday: { start: String, end: String, available: { type: Boolean, default: true } },
       saturday: { start: String, end: String, available: { type: Boolean, default: false } },
       sunday: { start: String, end: String, available: { type: Boolean, default: false } }
+    }
+  },
+  
+  // Admin-specific fields
+  adminDetails: {
+    permissions: [{
+      type: String,
+      enum: [
+        'view_all_users',
+        'manage_driver_verification',
+        'approve_reject_drivers',
+        'view_analytics',
+        'manage_services',
+        'view_orders',
+        'manage_users',
+        'system_settings'
+      ]
+    }],
+    accessLevel: {
+      type: String,
+      enum: ['admin', 'super_admin'],
+      default: 'admin'
+    },
+    lastLogin: Date,
+    loginCount: {
+      type: Number,
+      default: 0
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
     }
   },
   
@@ -410,6 +636,7 @@ userSchema.index({ createdAt: -1 });
 // Compound indexes
 userSchema.index({ userType: 1, isActive: 1 });
 userSchema.index({ 'transporterDetails.isVerified': 1, 'transporterDetails.isAvailable': 1 });
+userSchema.index({ phone: 1, userType: 1 }, { unique: true }); // Ensure phone + userType uniqueness
 
 // Pre-save middleware for password hashing
 userSchema.pre('save', async function(next) {

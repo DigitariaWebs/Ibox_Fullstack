@@ -172,12 +172,12 @@ const transformNotificationData = (backendNotification: any): DriverNotification
 // Async thunks for driver operations
 export const fetchDriverVerificationStatus = createAsyncThunk(
   'driver/fetchVerificationStatus',
-  async (_, { getState, rejectWithValue }) => {
+  async (forceRefresh: boolean = false, { getState, rejectWithValue }) => {
     try {
       const state = getState() as RootState;
       
-      // Check if data is fresh
-      if (state.driver.verificationStatus && isDataFresh(state.driver.lastUpdated.verification)) {
+      // Check if data is fresh (skip cache if forceRefresh is true)
+      if (!forceRefresh && state.driver.verificationStatus && isDataFresh(state.driver.lastUpdated.verification)) {
         return state.driver.verificationStatus;
       }
 

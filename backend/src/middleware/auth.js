@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import authService from '../services/authService.js';
+import jwt from 'jsonwebtoken';
 
 // Protect routes - require authentication
 export const protect = async (req, res, next) => {
@@ -23,8 +24,20 @@ export const protect = async (req, res, next) => {
     }
 
     try {
-      // Verify token
-      const payload = await authService.verifyToken(token, 'access');
+      let payload;
+      
+      // Try to verify as Supabase-based JWT first
+      try {
+        payload = jwt.verify(token, process.env.APP_JWT_SECRET);
+        if (!payload.sub) {
+          throw new Error('Invalid token format');
+        }
+        // This is a Supabase-based JWT, use sub as userId
+        payload.userId = payload.sub;
+      } catch (supabaseError) {
+        // Fall back to existing auth service verification
+        payload = await authService.verifyToken(token, 'access');
+      }
       
       // Get user from database
       const user = await User.findById(payload.userId).select('+loginAttempts');

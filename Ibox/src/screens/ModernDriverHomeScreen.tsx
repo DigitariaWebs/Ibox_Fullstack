@@ -33,6 +33,7 @@ import {
   acceptDeliveryRequest,
 } from '../store/store';
 import api from '../services/api';
+import socketService from '../services/socketService';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -64,6 +65,64 @@ interface DriverVerificationStatus {
     backgroundCheck: boolean;
   };
   pendingReview: boolean;
+  submissionStatus: {
+    profilePhoto: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+    phoneVerified: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+    driverLicense: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+    vehiclePhotos: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+    vehiclePlate: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+    insurance: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+    backgroundCheck: {
+      submitted: boolean;
+      submittedAt: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewedAt: string | null;
+      reviewedBy: string | null;
+      rejectionReason: string | null;
+    };
+  };
 }
 
 interface DeliveryRequest {
@@ -135,8 +194,10 @@ const ModernDriverHomeScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       loadUserProfile();
+      // Clear any cached verification status to ensure fresh data
+      dispatch({ type: 'driver/resetDriverState' });
       loadDriverData();
-    }, [loadUserProfile])
+    }, [loadUserProfile, dispatch])
   );
 
   // Load deliveries when verification status or online status changes
@@ -146,25 +207,67 @@ const ModernDriverHomeScreen: React.FC = () => {
     }
   }, [isOnline, verificationStatus?.isVerified, dispatch]);
 
+  // WebSocket listeners for real-time updates
+  useEffect(() => {
+    const handleVerificationUpdate = (data: any) => {
+      console.log('📋 Real-time verification update received in home screen:', data);
+      
+      // Force refresh verification status to get latest data
+      dispatch(fetchDriverVerificationStatus(true));
+      
+      // Show success animation for approved steps
+      if (data.status === 'approved') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    };
+
+    // Listen for verification status updates
+    socketService.on('verification_status_updated', handleVerificationUpdate);
+
+    // Cleanup on unmount
+    return () => {
+      socketService.off('verification_status_updated', handleVerificationUpdate);
+    };
+  }, [dispatch]);
+
+  // Debug log when verification status changes and refresh profile photo
+  useEffect(() => {
+    if (verificationStatus) {
+      console.log('📊 Verification Status Updated:', {
+        driverLicense: verificationStatus.submissionStatus?.driverLicense?.status,
+        profilePhoto: verificationStatus.submissionStatus?.profilePhoto?.status,
+        phoneVerified: verificationStatus.submissionStatus?.phoneVerified?.status,
+        overallVerified: verificationStatus.isVerified
+      });
+      
+      // Refresh profile photo when verification status changes
+      loadUserProfile();
+    }
+  }, [verificationStatus, loadUserProfile]);
+
   const loadUserProfile = useCallback(async () => {
     try {
       const currentUser = await getCurrentUser();
       if (currentUser) {
-        // Use actual profile photo from backend
-        setProfilePhoto(currentUser.profilePicture || null);
+        // Use actual profile photo from backend, with fallback to verification profile photo
+        const profilePic = currentUser.profilePicture || 
+                          verificationStatus?.documents?.profilePhoto || 
+                          null;
+        setProfilePhoto(profilePic);
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
     }
-  }, [getCurrentUser]);
+  }, [getCurrentUser, verificationStatus]);
 
   const loadDriverData = useCallback(async () => {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
     try {
       // Dispatch all Redux actions in parallel to load data
+      // Force refresh verification status to get latest admin decisions
       await Promise.all([
-        dispatch(fetchDriverVerificationStatus()),
+        dispatch(fetchDriverVerificationStatus(true)), // Force refresh to bypass cache
         dispatch(fetchDriverStats()),
         dispatch(fetchNotifications()),
         isOnline && verificationStatus?.isVerified ? 
@@ -241,7 +344,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#3B82F6', '#1D4ED8'],
         requirement: 'Required',
         estimatedTime: '2 min',
-        completed: verificationStatus.completedSteps?.profilePhoto || false,
+        completed: verificationStatus.submissionStatus?.profilePhoto?.status === 'approved',
+        status: verificationStatus.submissionStatus?.profilePhoto?.status || 'pending',
       },
       {
         id: 'phoneVerified',
@@ -253,7 +357,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#10B981', '#047857'],
         requirement: 'Required',
         estimatedTime: '2 min',
-        completed: verificationStatus.completedSteps?.phoneVerified || false,
+        completed: verificationStatus.submissionStatus?.phoneVerified?.status === 'approved',
+        status: verificationStatus.submissionStatus?.phoneVerified?.status || 'pending',
       },
       {
         id: 'driverLicense',
@@ -265,7 +370,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#6366F1', '#4F46E5'],
         requirement: 'Required',
         estimatedTime: '3 min',
-        completed: verificationStatus.completedSteps?.driverLicense || false,
+        completed: verificationStatus.submissionStatus?.driverLicense?.status === 'approved',
+        status: verificationStatus.submissionStatus?.driverLicense?.status || 'pending',
       },
       {
         id: 'vehiclePhotos',
@@ -277,7 +383,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#8B5CF6', '#7C3AED'],
         requirement: 'Required',
         estimatedTime: '5 min',
-        completed: verificationStatus.completedSteps?.vehiclePhotos || false,
+        completed: verificationStatus.submissionStatus?.vehiclePhotos?.status === 'approved',
+        status: verificationStatus.submissionStatus?.vehiclePhotos?.status || 'pending',
       },
       {
         id: 'vehiclePlate',
@@ -289,7 +396,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#F59E0B', '#D97706'],
         requirement: 'Required',
         estimatedTime: '1 min',
-        completed: verificationStatus.completedSteps?.vehiclePlate || false,
+        completed: verificationStatus.submissionStatus?.vehiclePlate?.status === 'approved',
+        status: verificationStatus.submissionStatus?.vehiclePlate?.status || 'pending',
       },
       {
         id: 'insurance',
@@ -301,7 +409,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#EF4444', '#DC2626'],
         requirement: 'Required',
         estimatedTime: '3 min',
-        completed: verificationStatus.completedSteps?.insurance || false,
+        completed: verificationStatus.submissionStatus?.insurance?.status === 'approved',
+        status: verificationStatus.submissionStatus?.insurance?.status || 'pending',
       },
       {
         id: 'backgroundCheck',
@@ -313,7 +422,8 @@ const ModernDriverHomeScreen: React.FC = () => {
         gradient: ['#06B6D4', '#0891B2'],
         requirement: 'Automatic',
         estimatedTime: '24 hrs',
-        completed: verificationStatus.completedSteps?.backgroundCheck || false,
+        completed: verificationStatus.submissionStatus?.backgroundCheck?.status === 'approved',
+        status: verificationStatus.submissionStatus?.backgroundCheck?.status || 'pending',
       },
     ];
 
@@ -409,7 +519,7 @@ const ModernDriverHomeScreen: React.FC = () => {
                   step.completed && styles.stepCardPremiumCompleted,
                 ]}
                 onPress={() => {
-                  if (!step.completed) {
+                  if (step.status !== 'approved') {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     
                     // Handle phone verification separately
@@ -422,7 +532,7 @@ const ModernDriverHomeScreen: React.FC = () => {
                     }
                   }
                 }}
-                disabled={step.completed}
+                disabled={step.status === 'approved'}
                 activeOpacity={0.7}
               >
                 {/* Step Number */}
@@ -433,10 +543,16 @@ const ModernDriverHomeScreen: React.FC = () => {
                 {/* Step Icon */}
                 <View style={[
                   styles.premiumStepIcon,
-                  { backgroundColor: step.completed ? '#10B981' : `${step.color}15` }
+                  { 
+                    backgroundColor: step.status === 'approved' ? '#10B981' : 
+                                   step.status === 'rejected' ? '#EF4444' : 
+                                   `${step.color}15` 
+                  }
                 ]}>
-                  {step.completed ? (
+                  {step.status === 'approved' ? (
                     <Icon name="check" type="Feather" size={24} color={Colors.white} />
+                  ) : step.status === 'rejected' ? (
+                    <Icon name="x" type="Feather" size={24} color={Colors.white} />
                   ) : (
                     <LinearGradient
                       colors={step.gradient}
@@ -453,7 +569,8 @@ const ModernDriverHomeScreen: React.FC = () => {
                     <View style={styles.stepTitleContainer}>
                       <Text style={[
                         styles.premiumStepTitle,
-                        step.completed && styles.premiumStepTitleCompleted
+                        step.status === 'approved' && styles.premiumStepTitleCompleted,
+                        step.status === 'rejected' && styles.premiumStepTitleRejected
                       ]}>
                         {step.title}
                       </Text>
@@ -480,9 +597,10 @@ const ModernDriverHomeScreen: React.FC = () => {
 
                   <Text style={[
                     styles.premiumStepDescription,
-                    step.completed && styles.premiumStepDescriptionCompleted
+                    step.status === 'approved' && styles.premiumStepDescriptionCompleted,
+                    step.status === 'rejected' && styles.premiumStepDescriptionRejected
                   ]}>
-                    {step.description}
+                    {step.status === 'rejected' ? 'Please resubmit with corrections' : step.description}
                   </Text>
                   
                   <Text style={styles.stepDetails}>
@@ -1239,6 +1357,9 @@ const styles = StyleSheet.create({
   premiumStepTitleCompleted: {
     color: '#10B981',
   },
+  premiumStepTitleRejected: {
+    color: '#EF4444',
+  },
   requirementBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -1268,6 +1389,9 @@ const styles = StyleSheet.create({
   },
   premiumStepDescriptionCompleted: {
     color: '#059669',
+  },
+  premiumStepDescriptionRejected: {
+    color: '#DC2626',
   },
   stepDetails: {
     fontSize: 12,

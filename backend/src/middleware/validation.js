@@ -52,8 +52,8 @@ export const commonValidations = {
 
   // User type validation
   userType: body('userType')
-    .isIn(['customer', 'transporter'])
-    .withMessage('User type must be either customer or transporter'),
+    .isIn(['customer', 'transporter', 'admin'])
+    .withMessage('User type must be customer, transporter, or admin'),
 
   // Language validation
   language: body('language')

@@ -1,0 +1,33 @@
+{
+  "name": "ibox-admin-dashboard",
+  "version": "1.0.0",
+  "description": "iBox Admin Dashboard - Driver Verification Management",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "npm run build:ts && npm run build:css && npm run fix-paths",
+    "dev": "concurrently \"tsc --watch\" \"tailwindcss -i ./src/styles.css -o ./dist/styles.css --watch\"",
+    "build:css": "tailwindcss -i ./src/styles.css -o ./dist/styles.css",
+    "build:ts": "tsc",
+    "fix-paths": "node -e \"const fs=require('fs');const html=fs.readFileSync('./dist/index.html','utf8').replace('./dist/styles.css','./styles.css').replace('./dist/app.js','./app.js');fs.writeFileSync('./dist/index.html',html)\"",
+    "serve": "live-server dist --port=3000"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "concurrently": "^8.0.0",
+    "live-server": "^1.2.2",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "admin",
+    "dashboard",
+    "verification",
+    "ibox"
+  ],
+  "author": "iBox Team",
+  "license": "MIT",
+  "dependencies": {
+    "@tailwindcss/forms": "^0.5.10",
+    "@tailwindcss/typography": "^0.5.16"
+  }
+}

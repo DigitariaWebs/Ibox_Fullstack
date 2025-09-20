@@ -8,6 +8,31 @@ class NotificationService {
     this.notifications = new Map();
   }
 
+  // Create a notification (alias for storeNotification with additional processing)
+  async createNotification(userId, title, body, type = 'general', data = {}) {
+    try {
+      const notification = {
+        title,
+        body,
+        data,
+        type,
+        timestamp: new Date().toISOString(),
+        read: false
+      };
+
+      await this.storeNotification(userId, notification);
+      
+      // Also send as push notification if possible
+      await this.sendPushNotification(userId, title, body, data);
+      
+      console.log(`📱 Notification created for user ${userId}: ${title}`);
+      return true;
+    } catch (error) {
+      console.error('Create notification error:', error);
+      return false;
+    }
+  }
+
   // Send push notification to user
   async sendPushNotification(userId, title, body, data = {}) {
     try {
@@ -185,23 +210,27 @@ class NotificationService {
 
   // Notification storage and retrieval
 
-  // Store notification in Redis for quick access
+  // Store notification in memory for quick access
   async storeNotification(userId, notification) {
     try {
       const notificationKey = `notifications:${userId}`;
-      const notificationData = JSON.stringify({
+      const notificationData = {
         id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         ...notification
-      });
+      };
 
-      // Store in Redis list (most recent first)
-      await this.redis.lpush(notificationKey, notificationData);
+      // Store in memory Map (most recent first)
+      if (!this.notifications.has(notificationKey)) {
+        this.notifications.set(notificationKey, []);
+      }
+      
+      const userNotifications = this.notifications.get(notificationKey);
+      userNotifications.unshift(notificationData); // Add to beginning
       
       // Keep only last 100 notifications per user
-      await this.redis.ltrim(notificationKey, 0, 99);
-      
-      // Set expiration (30 days)
-      await this.redis.expire(notificationKey, 30 * 24 * 60 * 60);
+      if (userNotifications.length > 100) {
+        userNotifications.splice(100);
+      }
 
       return true;
     } catch (error) {
@@ -215,13 +244,14 @@ class NotificationService {
     try {
       const notificationKey = `notifications:${userId}`;
       const start = (page - 1) * limit;
-      const end = start + limit - 1;
+      const end = start + limit;
 
-      const notifications = await this.redis.lrange(notificationKey, start, end);
-      const total = await this.redis.llen(notificationKey);
+      const userNotifications = this.notifications.get(notificationKey) || [];
+      const notifications = userNotifications.slice(start, end);
+      const total = userNotifications.length;
 
       return {
-        notifications: notifications.map(n => JSON.parse(n)),
+        notifications: notifications,
         pagination: {
           page,
           limit,
@@ -239,26 +269,20 @@ class NotificationService {
   async markNotificationRead(userId, notificationId) {
     try {
       const notificationKey = `notifications:${userId}`;
-      const notifications = await this.redis.lrange(notificationKey, 0, -1);
+      const userNotifications = this.notifications.get(notificationKey) || [];
       
       let found = false;
-      const updatedNotifications = notifications.map(notificationStr => {
-        const notification = JSON.parse(notificationStr);
+      const updatedNotifications = userNotifications.map(notification => {
         if (notification.id === notificationId) {
           notification.read = true;
           notification.readAt = new Date().toISOString();
           found = true;
         }
-        return JSON.stringify(notification);
+        return notification;
       });
 
       if (found) {
-        // Replace the entire list
-        await this.redis.del(notificationKey);
-        if (updatedNotifications.length > 0) {
-          await this.redis.rpush(notificationKey, ...updatedNotifications);
-          await this.redis.expire(notificationKey, 30 * 24 * 60 * 60);
-        }
+        this.notifications.set(notificationKey, updatedNotifications);
       }
 
       return found;
@@ -272,24 +296,17 @@ class NotificationService {
   async markAllNotificationsRead(userId) {
     try {
       const notificationKey = `notifications:${userId}`;
-      const notifications = await this.redis.lrange(notificationKey, 0, -1);
+      const userNotifications = this.notifications.get(notificationKey) || [];
       
-      const updatedNotifications = notifications.map(notificationStr => {
-        const notification = JSON.parse(notificationStr);
+      const updatedNotifications = userNotifications.map(notification => {
         if (!notification.read) {
           notification.read = true;
           notification.readAt = new Date().toISOString();
         }
-        return JSON.stringify(notification);
+        return notification;
       });
 
-      // Replace the entire list
-      await this.redis.del(notificationKey);
-      if (updatedNotifications.length > 0) {
-        await this.redis.rpush(notificationKey, ...updatedNotifications);
-        await this.redis.expire(notificationKey, 30 * 24 * 60 * 60);
-      }
-
+      this.notifications.set(notificationKey, updatedNotifications);
       return true;
     } catch (error) {
       console.error('Mark all notifications read error:', error);
@@ -301,10 +318,9 @@ class NotificationService {
   async getUnreadCount(userId) {
     try {
       const notificationKey = `notifications:${userId}`;
-      const notifications = await this.redis.lrange(notificationKey, 0, -1);
+      const userNotifications = this.notifications.get(notificationKey) || [];
       
-      const unreadCount = notifications.reduce((count, notificationStr) => {
-        const notification = JSON.parse(notificationStr);
+      const unreadCount = userNotifications.reduce((count, notification) => {
         return count + (notification.read ? 0 : 1);
       }, 0);
 

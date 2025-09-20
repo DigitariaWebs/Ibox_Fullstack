@@ -11,10 +11,12 @@ import {
 } from 'react-native';
 import { Text, Input, Button, Icon } from './ui';
 import { Colors } from './config/colors';
+import { useBetterAuthSession } from './hooks/useBetterAuthSession';
 import { useAuth } from './contexts/AuthContext';
 
 const LoginScreen: React.FC<any> = ({ navigation }) => {
-  const { login, connectionStatus, checkConnection } = useAuth();
+  const { login, googleLogin, connectionStatus, checkConnection } = useAuth();
+  const { signInWithGoogle } = useBetterAuthSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -25,6 +27,15 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
     checkConnection();
   }, []);
 
+  // Debug button rendering
+  useEffect(() => {
+    console.log('🔍 LoginScreen mounted');
+    console.log('📧 Email state:', email);
+    console.log('🔒 Password state:', password);
+    console.log('🌐 Connection status:', connectionStatus);
+    console.log('⏳ Loading state:', isLoading);
+  }, [email, password, connectionStatus, isLoading]);
+
   const handleBackPress = () => {
     if (navigation && navigation.goBack) {
       navigation.goBack();
@@ -32,19 +43,28 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const handleLogin = async () => {
+    console.log('🔑 Login button pressed');
+    console.log('📧 Email:', email.trim());
+    console.log('🔒 Password length:', password.trim().length);
+    console.log('🌐 Connection status:', connectionStatus);
+    console.log('⏳ Loading state:', isLoading);
+    
     // Validate input
     if (!email.trim()) {
+      console.log('❌ Email validation failed');
       Alert.alert('Email Required', 'Please enter your email address.');
       return;
     }
 
     if (!password.trim()) {
+      console.log('❌ Password validation failed');
       Alert.alert('Password Required', 'Please enter your password.');
       return;
     }
 
     // Check connection
     if (connectionStatus === 'disconnected') {
+      console.log('❌ Connection check failed');
       const isConnected = await checkConnection();
       if (!isConnected) {
         Alert.alert(
@@ -59,17 +79,20 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
       }
     }
 
+    console.log('✅ Validation passed, starting login process...');
     setIsLoading(true);
     
     try {
       // Call real API login
+      console.log('🌐 Calling API login...');
       const authResponse = await login({
         email: email.trim().toLowerCase(),
         password: password.trim(),
       });
       
+      console.log('✅ Login successful:', authResponse.user.email, 'as', authResponse.user.userType);
+      
       // Navigation will happen automatically via AuthContext state change
-      console.log('✅ Login successful for:', authResponse.user.email, 'as', authResponse.user.userType);
       
     } catch (error: any) {
       console.error('❌ Login error:', error);
@@ -97,36 +120,59 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
       
       Alert.alert('Login Failed', errorMessage);
     } finally {
+      console.log('🏁 Login process finished');
       setIsLoading(false);
     }
   };
 
   const handleSocialLogin = async (provider: 'facebook' | 'google' | 'apple') => {
+    if (provider !== 'google') {
+      Alert.alert('Coming Soon', `${provider} login will be available soon!`);
+      return;
+    }
+
     setIsLoading(true);
     
     try {
-      // Simulate social login - in real app this would integrate with social providers
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('🔑 Starting Google sign-in...');
       
-      // Mock user data from social provider
-      const userData = {
-        id: `${provider}_user_123`,
-        email: `user@${provider}.com`,
-        firstName: 'Social',
-        lastName: 'User',
-      };
-
-      // Determine user type based on provider
-      const userType = provider === 'facebook' ? 'transporter' : 'customer';
+      // Use the updated auth client for Google sign-in
+      const result = await signInWithGoogle();
       
-      await login(userData, userType);
-      console.log('✅ Social login successful with:', provider, 'as', userType);
+      if (result.success && result.user) {
+        console.log('✅ Google sign-in successful, processing user data...');
+        
+        // Handle the successful authentication
+        const authResponse = await googleLogin(result.user);
+        
+        if (authResponse.success) {
+          Alert.alert('Success', 'Google sign-in successful!', [
+            { 
+              text: 'OK', 
+              onPress: () => navigation.navigate('Home') 
+            }
+          ]);
+        } else {
+          throw new Error(authResponse.message || 'Authentication failed');
+        }
+      } else {
+        throw new Error('No user data received from Google');
+      }
       
-      // Navigation will now be handled automatically by AuthContext based on userType
+    } catch (error: any) {
+      console.error('❌ Google sign-in error:', error);
       
-    } catch (error) {
-      console.error('❌ Social login error:', error);
-      Alert.alert('Login Failed', `Failed to login with ${provider}. Please try again.`);
+      let errorMessage = 'Google sign-in failed. Please try again.';
+      
+      if (error.message.includes('cancelled')) {
+        errorMessage = 'Sign-in was cancelled. Please try again.';
+      } else if (error.message.includes('network')) {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.message.includes('Invalid credentials')) {
+        errorMessage = 'Google authentication failed. Please try again.';
+      }
+      
+      Alert.alert('Sign-in Failed', errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -211,16 +257,51 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
                 }
               />
               
-              {email.trim() && password.trim() && (
-                <Button
-                  title="Login"
-                  onPress={handleLogin}
-                  variant="primary"
-                  style={styles.loginButton}
-                  loading={isLoading}
-                  disabled={connectionStatus === 'disconnected'}
-                />
-              )}
+              {/* Simple Login Button for Android */}
+              <TouchableOpacity
+                style={[
+                  styles.simpleLoginButton,
+                  (isLoading || !email.trim() || !password.trim() || connectionStatus === 'disconnected') && styles.simpleLoginButtonDisabled
+                ]}
+                onPress={() => {
+                  console.log('🔑 LOGIN BUTTON PRESSED!');
+                  console.log('📧 Email:', email);
+                  console.log('🔒 Password length:', password.length);
+                  console.log('🌐 Connection:', connectionStatus);
+                  console.log('⏳ Loading:', isLoading);
+                  handleLogin();
+                }}
+                disabled={isLoading || !email.trim() || !password.trim() || connectionStatus === 'disconnected'}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  styles.simpleLoginButtonText,
+                  (isLoading || !email.trim() || !password.trim() || connectionStatus === 'disconnected') && styles.simpleLoginButtonTextDisabled
+                ]}>
+                  {isLoading ? "Logging in..." : "Login"}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Test Button - Always works */}
+              <TouchableOpacity
+                style={styles.testButton}
+                onPress={() => {
+                  console.log('🧪 Test button pressed!');
+                  Alert.alert('Test', 'Test button works!');
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.testButtonText}>
+                  🧪 Test Button (Always Works)
+                </Text>
+              </TouchableOpacity>
+
+              {/* Debug Info */}
+              <View style={styles.debugContainer}>
+                <Text style={styles.debugText}>
+                  Debug: Email={email ? '✓' : '✗'} Password={password ? '✓' : '✗'} Connection={connectionStatus}
+                </Text>
+              </View>
 
               {/* Forgot Password Link */}
               <TouchableOpacity style={styles.forgotPasswordContainer} activeOpacity={0.7}>
@@ -362,6 +443,65 @@ const styles = StyleSheet.create({
   loginButton: {
     marginTop: 8,
     marginBottom: 16,
+  },
+  simpleLoginButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+    minHeight: 52,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 0,
+  },
+  simpleLoginButtonDisabled: {
+    backgroundColor: '#E5E5E5',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  simpleLoginButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  simpleLoginButtonTextDisabled: {
+    color: '#999',
+  },
+  testButton: {
+    backgroundColor: '#FF6B6B',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+    minHeight: 44,
+  },
+  testButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  debugContainer: {
+    backgroundColor: '#F0F0F0',
+    padding: 8,
+    borderRadius: 4,
+    marginVertical: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
   },
   forgotPasswordContainer: {
     alignItems: 'center',

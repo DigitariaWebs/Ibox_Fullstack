@@ -21,6 +21,8 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import { Colors } from '../config/colors';
 import { useAuth } from '../contexts/AuthContext';
+import { useDispatch } from 'react-redux';
+import { fetchDriverVerificationStatus } from '../store/store';
 import api from '../services/api';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -33,7 +35,8 @@ const PhoneVerificationScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { phoneNumber: routePhoneNumber } = ((route as any)?.params || {}) as RouteParams;
-  const { user, getCurrentUser, fetchDriverVerificationStatus } = useAuth();
+  const { user, getCurrentUser } = useAuth();
+  const dispatch = useDispatch();
   
   // State
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -192,7 +195,7 @@ const PhoneVerificationScreen: React.FC = () => {
         
         // Refresh user data
         if (user?.userType === 'transporter') {
-          await fetchDriverVerificationStatus();
+          await dispatch(fetchDriverVerificationStatus(true)); // Force refresh
         } else {
           await getCurrentUser();
         }

@@ -21,7 +21,14 @@ const driverRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === 'development' && req.ip === '127.0.0.1'
+  skip: (req) => {
+    // Skip rate limiting in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔓 Skipping rate limit in development mode for IP:', req.ip);
+      return true;
+    }
+    return false;
+  }
 });
 
 // Apply rate limiting and input sanitization
@@ -44,14 +51,37 @@ router.post('/verification/upload',
   rateLimitByUser(10, 60), // 10 uploads per hour
   [
     body('documentType')
-      .isIn(['profile_photo', 'driver_license_front', 'driver_license_back', 'vehicle_front', 'vehicle_back', 'vehicle_side', 'license_plate', 'insurance'])
+      .isIn(['profilePhoto', 'driverLicense', 'vehicleFront', 'vehicleBack', 'vehicleLeft', 'vehicleRight', 'vehicleInterior', 'licensePlate', 'insurance'])
       .withMessage('Invalid document type'),
+    body('imageData')
+      .optional()
+      .isString()
+      .withMessage('Image data must be a valid Base64 string'),
     body('documentUrl')
+      .optional()
       .isURL()
       .withMessage('Valid document URL is required')
   ],
   handleValidationErrors,
   driverController.uploadVerificationDocument
+);
+
+// Upload multiple verification documents
+router.post('/verification/upload-multiple',
+  rateLimitByUser(5, 60), // 5 bulk uploads per hour
+  [
+    body('documents')
+      .isArray({ min: 1 })
+      .withMessage('Documents array is required'),
+    body('documents.*.documentType')
+      .isIn(['profilePhoto', 'driverLicense', 'vehicleFront', 'vehicleBack', 'vehicleLeft', 'vehicleRight', 'vehicleInterior', 'licensePlate', 'insurance'])
+      .withMessage('Invalid document type'),
+    body('documents.*.imageData')
+      .isString()
+      .withMessage('Image data must be a valid Base64 string')
+  ],
+  handleValidationErrors,
+  driverController.uploadMultipleDocuments
 );
 
 // Submit background check consent

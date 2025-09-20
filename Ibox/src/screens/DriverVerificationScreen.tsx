@@ -37,6 +37,8 @@ import Animated, {
   interpolate,
   Extrapolation,
 } from 'react-native-reanimated';
+import driverVerificationService from '../services/driverVerificationService';
+import socketService from '../services/socketService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -59,6 +61,8 @@ const DriverVerificationScreen: React.FC = () => {
   const [currentPhotoStep, setCurrentPhotoStep] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [verificationStatus, setVerificationStatus] = useState<any>(null);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   
   // Animation values
   const scaleAnim = useSharedValue(0.95);
@@ -72,12 +76,163 @@ const DriverVerificationScreen: React.FC = () => {
     headerAnim.value = withDelay(100, withTiming(1, { duration: 800 }));
     cardAnim.value = withDelay(200, withSpring(0, { damping: 15, stiffness: 100 }));
     scaleAnim.value = withDelay(300, withSpring(1, { damping: 15, stiffness: 100 }));
-    
+
+    // Load verification status only once on mount
+    loadVerificationStatus();
+
+    // Set up real-time verification status updates
+    const handleVerificationUpdate = (data: any) => {
+      console.log('📋 Real-time verification update received:', data);
+      
+      // Show success animation for approved steps
+      if (data.status === 'approved') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        successAnim.value = withSequence(
+          withTiming(1, { duration: 300 }),
+          withDelay(2000, withTiming(0, { duration: 300 }))
+        );
+      }
+      
+      // Show error animation for rejected steps
+      if (data.status === 'rejected') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert(
+          'Verification Update',
+          `Your ${data.step} verification was rejected. Reason: ${data.reason || 'Please check and resubmit.'}`,
+          [{ text: 'OK', style: 'default' }]
+        );
+      }
+
+      // Reload verification status to get latest data
+      loadVerificationStatus();
+    };
+
+    // Listen for verification status updates
+    socketService.on('verification_status_updated', handleVerificationUpdate);
+
+    // Cleanup on unmount
+    return () => {
+      socketService.off('verification_status_updated', handleVerificationUpdate);
+    };
+  }, []); // Empty dependency array - only run once on mount
+
+  useEffect(() => {
     // Update progress based on uploaded images
     const config = getStepConfig();
     const progress = uploadedImages.length / Math.max(config.imageTypes.length, 1);
     progressAnim.value = withTiming(progress, { duration: 500 });
-  }, [uploadedImages]);
+    
+    // Debug: Log when uploadedImages state changes
+    console.log(`🔄 uploadedImages state changed:`, {
+      count: uploadedImages.length,
+      images: uploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' })),
+      requiredCount: config.imageTypes.length,
+      requiredTypes: config.imageTypes,
+      submitButtonShouldShow: uploadedImages.length === config.imageTypes.length
+    });
+  }, [uploadedImages]); // Only update progress when uploadedImages changes
+
+  const loadVerificationStatus = async () => {
+    try {
+      console.log('🔍 Loading verification status...');
+      const status = await driverVerificationService.getVerificationStatus();
+      console.log('✅ Verification status loaded:', status);
+      
+      setVerificationStatus(status);
+      
+      // Check if this step is already submitted and pending review
+      const isStepSubmitted = checkIfStepIsSubmitted(status, step);
+      setIsSubmitted(isStepSubmitted);
+      
+      // Update UI based on verification status
+      // You can use this to show already uploaded documents
+      if (status.documents) {
+        const existingImages = [];
+        
+        // Map backend document types to frontend image types
+        Object.entries(status.documents).forEach(([docType, docData]) => {
+          const imageType = mapBackendToFrontendType(docType);
+          if (imageType && docData) {
+            console.log(`📸 Processing document: ${docType} -> ${imageType}`);
+            
+            // Only process documents that belong to the current step
+            const belongsToCurrentStep = (
+              (step === 'profilePhoto' && docType === 'profilePhoto') ||
+              (step === 'driverLicense' && docType === 'driverLicense') ||
+              (step === 'vehiclePhotos' && (docType === 'vehicleFront' || docType === 'vehicleBack' || docType === 'vehicleLeft' || docType === 'vehicleRight' || docType === 'vehicleInterior')) ||
+              (step === 'vehiclePlate' && docType === 'licensePlate') ||
+              (step === 'insurance' && docType === 'insurance')
+            );
+            
+            if (!belongsToCurrentStep) {
+              console.log(`📸 Skipping document ${docType} - not for current step ${step}`);
+              return;
+            }
+            
+            // For driver license, load the single image
+            if (step === 'driverLicense') {
+              existingImages.push({
+                uri: docData, // This will be Cloudinary URL
+                type: 'single'
+              });
+              console.log(`📸 Added driver license image as 'single'`);
+            } else {
+              existingImages.push({
+                uri: docData, // This will be Cloudinary URL
+                type: imageType
+              });
+              console.log(`📸 Added image: ${imageType}`);
+            }
+          }
+        });
+        
+        if (existingImages.length > 0) {
+          setUploadedImages(existingImages);
+          console.log(`📸 Loaded ${existingImages.length} existing images`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error loading verification status:', error);
+      // Don't show error to user, just log it
+    }
+  };
+
+  const mapBackendToFrontendType = (backendType: string): string | null => {
+    const mapping = {
+      'profilePhoto': 'single',
+      'driverLicense': 'single',
+      'driverLicenseFront': 'single',
+      'driverLicenseBack': 'single',
+      'vehicleFront': 'front',
+      'vehicleBack': 'back',
+      'vehicleLeft': 'left',
+      'vehicleRight': 'right',
+      'vehicleInterior': 'interior',
+      'licensePlate': 'single',
+      'insurance': 'front'
+    };
+    
+    return mapping[backendType] || null;
+  };
+
+  const checkIfStepIsSubmitted = (status: any, currentStep: string): boolean => {
+    if (!status || !status.submissionStatus) return false;
+    
+    const stepStatus = status.submissionStatus[currentStep];
+    return stepStatus && stepStatus.submitted && stepStatus.status === 'pending';
+  };
+
+  const getStepDocuments = (step: string): string[] => {
+    const stepDocumentMap = {
+      'profilePhoto': ['profilePhoto'],
+      'driverLicense': ['driverLicense'],
+      'vehiclePhotos': ['vehicleFront', 'vehicleBack', 'vehicleLeft', 'vehicleRight', 'vehicleInterior'],
+      'vehiclePlate': ['licensePlate'],
+      'insurance': ['insurance']
+    };
+    
+    return stepDocumentMap[step] || [];
+  };
 
   const getStepConfig = () => {
     switch (step) {
@@ -109,20 +264,20 @@ const DriverVerificationScreen: React.FC = () => {
         return {
           title: 'Driver License',
           subtitle: 'Valid driving credentials',
-          description: 'Upload clear photos of both sides of your current driver license',
+          description: 'Upload a clear photo of your current driver license',
           detailedInstructions: 'We need to verify your legal driving status and ensure all information is current and valid.',
           icon: 'credit-card',
           color: '#10B981',
           gradient: ['#10B981', '#047857'],
-          estimatedTime: '3 minutes',
+          estimatedTime: '2 minutes',
           requirements: [
-            { text: 'Both front and back sides required', icon: 'copy', tip: 'Take separate photos of each side' },
+            { text: 'License clearly visible', icon: 'eye', tip: 'Make sure all text is readable' },
             { text: 'All text clearly readable', icon: 'type', tip: 'Ensure no blur or distortion in the text' },
             { text: 'No glare, shadows, or reflections', icon: 'zap-off', tip: 'Avoid bright lights and camera flash' },
             { text: 'License must be current and valid', icon: 'calendar', tip: 'Check your expiration date before uploading' },
             { text: 'Flat surface, no bending or folding', icon: 'square', tip: 'Place on a flat, dark surface' },
           ],
-          imageTypes: ['front', 'back'],
+          imageTypes: ['single'],
           tips: [
             'Place license on a dark, flat surface',
             'Use good lighting but avoid flash',
@@ -263,7 +418,15 @@ const DriverVerificationScreen: React.FC = () => {
         uri: result.assets[0].uri,
         type: type as any,
       };
-      setUploadedImages([...uploadedImages, newImage]);
+      console.log(`📸 Image picked from gallery:`, { type, uri: newImage.uri });
+      console.log(`📸 Current uploadedImages before:`, uploadedImages.length);
+      console.log(`📸 Current uploadedImages array:`, uploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' })));
+      
+      const newUploadedImages = [...uploadedImages, newImage];
+      console.log(`📸 New uploadedImages array:`, newUploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' })));
+      
+      setUploadedImages(newUploadedImages);
+      console.log(`📸 setUploadedImages called with ${newUploadedImages.length} images`);
     }
   };
 
@@ -287,7 +450,15 @@ const DriverVerificationScreen: React.FC = () => {
         uri: result.assets[0].uri,
         type: type as any,
       };
-      setUploadedImages([...uploadedImages, newImage]);
+      console.log(`📸 Photo taken with camera:`, { type, uri: newImage.uri });
+      console.log(`📸 Current uploadedImages before:`, uploadedImages.length);
+      console.log(`📸 Current uploadedImages array:`, uploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' })));
+      
+      const newUploadedImages = [...uploadedImages, newImage];
+      console.log(`📸 New uploadedImages array:`, newUploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' })));
+      
+      setUploadedImages(newUploadedImages);
+      console.log(`📸 setUploadedImages called with ${newUploadedImages.length} images`);
     }
   };
 
@@ -319,25 +490,111 @@ const DriverVerificationScreen: React.FC = () => {
     setIsUploading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // TODO: Upload to backend
-    setTimeout(() => {
-      setIsUploading(false);
+    try {
+      console.log(`🚀 Starting ${step} verification upload...`);
+      
+      // Convert images to Base64 and prepare documents
+      const documents = [];
+      
+      for (const image of uploadedImages) {
+        try {
+          console.log(`📸 Converting ${image.type} to Base64...`);
+          console.log(`📸 Image URI:`, image.uri);
+          console.log(`📸 Image type:`, image.type);
+          console.log(`📸 Step:`, step);
+          
+          const base64Data = await driverVerificationService.imageUriToBase64(image.uri);
+          console.log(`📸 Base64 conversion successful, length:`, base64Data.length);
+          
+          // Map frontend type to backend document type
+          const documentType = driverVerificationService.mapDocumentType(image.type, step);
+          console.log(`📸 Mapped document type:`, documentType);
+          
+          documents.push({
+            documentType,
+            imageData: base64Data
+          });
+          
+          console.log(`✅ ${image.type} converted successfully`);
+        } catch (error) {
+          console.error(`❌ Error converting ${image.type}:`, error);
+          console.error(`❌ Error details:`, {
+            message: error.message,
+            stack: error.stack,
+            imageUri: image.uri,
+            imageType: image.type,
+            step: step
+          });
+          throw new Error(`Failed to process ${image.type} image`);
+        }
+      }
+
+      // Upload documents to backend
+      if (documents.length === 1) {
+        // Single document upload
+        const response = await driverVerificationService.uploadDocument(
+          documents[0].documentType,
+          documents[0].imageData
+        );
+        
+        console.log('✅ Single document uploaded successfully:', response);
+      } else {
+        // Multiple documents upload
+        const response = await driverVerificationService.uploadMultipleDocuments(documents);
+        
+        console.log('✅ Multiple documents uploaded successfully:', response);
+        
+        if (response.totalErrors > 0) {
+          Alert.alert(
+            'Partial Success',
+            `Uploaded ${response.totalUploaded} documents successfully. ${response.totalErrors} failed.`,
+            [{ text: 'OK' }]
+          );
+        }
+      }
+
+      // Mark as submitted to prevent re-submission
+      setIsSubmitted(true);
+      
+      // Show success animation
+      setShowSuccess(true);
+      successAnim.value = withSpring(1);
+      
+      // Show success message
+      setTimeout(() => {
+        Alert.alert(
+          'Success',
+          'Documents uploaded successfully. We will review them shortly.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack(),
+            },
+          ]
+        );
+      }, 1500);
+
+    } catch (error) {
+      console.error('❌ Error uploading documents:', error);
+      
       Alert.alert(
-        'Success',
-        'Documents uploaded successfully. We will review them shortly.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
-          },
-        ]
+        'Upload Failed',
+        error.message || 'Failed to upload documents. Please try again.',
+        [{ text: 'OK' }]
       );
-    }, 2000);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const renderEnhancedImageUploadCard = (type: string, label: string, index: number) => {
     const existingImage = uploadedImages.find(img => img.type === type);
     const config = getStepConfig();
+    
+    console.log(`🖼️ Rendering image card for type: ${type}`, {
+      existingImage: existingImage ? { type: existingImage.type, uri: existingImage.uri.substring(0, 50) + '...' } : null,
+      allUploadedImages: uploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' }))
+    });
 
     return (
       <Animated.View
@@ -432,6 +689,9 @@ const DriverVerificationScreen: React.FC = () => {
           interior: 'Interior',
         };
       case 'driverLicense':
+        return {
+          single: 'Driver License',
+        };
       case 'insurance':
         return {
           front: 'Front Side',
@@ -628,16 +888,33 @@ const DriverVerificationScreen: React.FC = () => {
                       {
                         text: 'I Authorize',
                         style: 'default',
-                        onPress: () => {
-                          setShowSuccess(true);
-                          successAnim.value = withSpring(1);
-                          setTimeout(() => {
+                        onPress: async () => {
+                          try {
+                            console.log('🚀 Submitting background check consent...');
+                            
+                            const response = await driverVerificationService.submitBackgroundConsent(true);
+                            
+                            console.log('✅ Background check consent submitted:', response);
+                            
+                            setShowSuccess(true);
+                            successAnim.value = withSpring(1);
+                            
+                            setTimeout(() => {
+                              Alert.alert(
+                                'Background Check Initiated', 
+                                'Your background verification has been started. We\'ll notify you via email once the process is complete.',
+                                [{ text: 'Got it', onPress: () => navigation.goBack() }]
+                              );
+                            }, 1500);
+                          } catch (error) {
+                            console.error('❌ Error submitting background consent:', error);
+                            
                             Alert.alert(
-                              'Background Check Initiated', 
-                              'Your background verification has been started. We\'ll notify you via email once the process is complete.',
-                              [{ text: 'Got it', onPress: () => navigation.goBack() }]
+                              'Submission Failed',
+                              'Failed to submit background check consent. Please try again.',
+                              [{ text: 'OK' }]
                             );
-                          }, 1500);
+                          }
                         },
                       },
                     ]
@@ -842,19 +1119,30 @@ const DriverVerificationScreen: React.FC = () => {
           )}
 
           {/* Enhanced Submit Button */}
-          {uploadedImages.length === config.imageTypes.length && (
+          {(() => {
+            console.log(`🔍 Submit button check:`, {
+              uploadedImagesLength: uploadedImages.length,
+              requiredImagesLength: config.imageTypes.length,
+              uploadedImages: uploadedImages.map(img => ({ type: img.type, uri: img.uri.substring(0, 50) + '...' })),
+              requiredTypes: config.imageTypes
+            });
+            return uploadedImages.length === config.imageTypes.length;
+          })() && (
             <Animated.View
               entering={FadeInUp.delay(1200).springify()}
               style={styles.premiumSubmitContainer}
             >
               <TouchableOpacity
-                style={styles.premiumSubmitButton}
+                style={[
+                  styles.premiumSubmitButton,
+                  (isUploading || isSubmitted) && styles.disabledButton
+                ]}
                 onPress={handleSubmit}
-                disabled={isUploading}
+                disabled={isUploading || isSubmitted}
                 activeOpacity={0.9}
               >
                 <LinearGradient
-                  colors={config.gradient}
+                  colors={isSubmitted ? ['#10B981', '#047857'] : config.gradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.premiumSubmitButtonGradient}
@@ -863,6 +1151,13 @@ const DriverVerificationScreen: React.FC = () => {
                     <View style={styles.submitButtonContent}>
                       <ActivityIndicator size="small" color={Colors.white} />
                       <Text style={styles.premiumSubmitButtonText}>Processing...</Text>
+                    </View>
+                  ) : isSubmitted ? (
+                    <View style={styles.submitButtonContent}>
+                      <Text style={styles.premiumSubmitButtonText}>Submitted for Review</Text>
+                      <Text style={styles.submitButtonSubtext}>
+                        Awaiting admin approval
+                      </Text>
                     </View>
                   ) : (
                     <View style={styles.submitButtonContent}>
@@ -875,7 +1170,7 @@ const DriverVerificationScreen: React.FC = () => {
                   
                   <View style={styles.submitButtonIcon}>
                     <Icon 
-                      name={isUploading ? "upload-cloud" : "check-circle"} 
+                      name={isUploading ? "upload-cloud" : isSubmitted ? "clock" : "check-circle"} 
                       type="Feather" 
                       size={24} 
                       color={Colors.white} 
@@ -1393,6 +1688,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 8,
+  },
+  disabledButton: {
+    opacity: 0.7,
+    shadowOpacity: 0.1,
+    elevation: 4,
   },
   premiumSubmitButtonGradient: {
     flexDirection: 'row',

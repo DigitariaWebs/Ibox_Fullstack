@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { Text } from '../../ui';
 import { Icon } from '../../ui/Icon';
@@ -16,12 +18,9 @@ import { Fonts } from '../../config/fonts';
 import SignupBackground from '../../components/SignupBackground';
 import IOSButton from '../../components/iOSButton';
 import apiService from '../../services/api';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSequence,
-} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,22 +32,19 @@ interface ModernOTPVerificationScreenProps {
 const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = ({ navigation, route }) => {
   const { accountType, firstName, lastName, email, phone } = route.params;
 
-  const [otp, setOtp] = useState('');
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [focusedIndex, setFocusedIndex] = useState(0);
 
-  const inputRef = useRef<TextInput>(null);
-
-  // Animation values
-  const contentOpacity = useSharedValue(0);
-  const shakeAnimation = useSharedValue(0);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
+  const shakeAnimation = useRef(new Animated.Value(0)).current;
+  const scaleAnimations = useRef(
+    Array(6).fill(0).map(() => new Animated.Value(1))
+  ).current;
 
   useEffect(() => {
-    // Entrance animation
-    contentOpacity.value = withTiming(1, { duration: 300 });
-
     // Send initial OTP when screen loads
     sendInitialOTP();
 
@@ -83,45 +79,117 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
     }
   };
 
-  const handleOtpChange = (value: string) => {
-    // Only allow digits and limit to 6 characters
-    const cleanValue = value.replace(/[^0-9]/g, '').slice(0, 6);
-    setOtp(cleanValue);
+  const handleOTPChange = (value: string, index: number) => {
+    // Handle paste
+    if (value.length > 1) {
+      const pastedCode = value.slice(0, 6).replace(/[^0-9]/g, '');
+      if (pastedCode.length === 6) {
+        const digits = pastedCode.split('');
+        setOtp(digits);
+        setError('');
+        
+        // Animate all cells
+        digits.forEach((_, i) => {
+          Animated.spring(scaleAnimations[i], {
+            toValue: 1.1,
+            useNativeDriver: true,
+          }).start(() => {
+            Animated.spring(scaleAnimations[i], {
+              toValue: 1,
+              useNativeDriver: true,
+            }).start();
+          });
+        });
+        
+        // Auto verify
+        setTimeout(() => handleVerify(pastedCode), 300);
+        return;
+      }
+    }
+    
+    // Single digit input
+    const digit = value.replace(/[^0-9]/g, '');
+    if (digit.length > 1) return;
+    
+    const newOtp = [...otp];
+    newOtp[index] = digit;
+    setOtp(newOtp);
     setError('');
-
-    // Auto-submit when all 6 digits are entered
-    if (cleanValue.length === 6) {
+    
+    // Animate current cell
+    if (digit) {
+      Animated.sequence([
+        Animated.spring(scaleAnimations[index], {
+          toValue: 1.2,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scaleAnimations[index], {
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    
+    // Auto-focus next input
+    if (digit && index < 5) {
       setTimeout(() => {
-        handleVerify(cleanValue);
-      }, 100);
+        inputRefs.current[index + 1]?.focus();
+      }, 50);
+    }
+    
+    // Auto-verify when all digits entered
+    if (newOtp.every(d => d !== '') && digit) {
+      setTimeout(() => handleVerify(newOtp.join('')), 300);
     }
   };
 
-  const handleCellPress = (index: number) => {
-    setFocusedIndex(index);
-    inputRef.current?.focus();
+  const handleKeyPress = (key: string, index: number) => {
+    if (key === 'Backspace') {
+      if (!otp[index] && index > 0) {
+        // Move to previous cell if current is empty
+        const newOtp = [...otp];
+        newOtp[index - 1] = '';
+        setOtp(newOtp);
+        inputRefs.current[index - 1]?.focus();
+        
+        // Animate previous cell
+        Animated.sequence([
+          Animated.spring(scaleAnimations[index - 1], {
+            toValue: 0.9,
+            useNativeDriver: true,
+          }),
+          Animated.spring(scaleAnimations[index - 1], {
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      } else if (otp[index]) {
+        // Clear current cell
+        const newOtp = [...otp];
+        newOtp[index] = '';
+        setOtp(newOtp);
+      }
+    }
+  };
 
-    // Set cursor position
-    setTimeout(() => {
-      inputRef.current?.setNativeProps({
-        selection: { start: index, end: index }
-      });
-    }, 10);
+  const shakeInputs = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
   };
 
   const handleVerify = async (otpToVerify?: string) => {
-    const otpString = otpToVerify || otp;
+    const otpString = otpToVerify || otp.join('');
     console.log('🔍 OTP Verification Debug:', { otpString, length: otpString.length });
 
     if (otpString.length !== 6) {
       setError('Please enter the complete 6-digit code');
-      // Shake animation
-      shakeAnimation.value = withSequence(
-        withTiming(-10, { duration: 50 }),
-        withTiming(10, { duration: 50 }),
-        withTiming(-10, { duration: 50 }),
-        withTiming(0, { duration: 50 })
-      );
+      shakeInputs();
       return;
     }
 
@@ -133,6 +201,7 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
       
       if (response.success) {
         console.log('✅ OTP verified successfully');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         // Navigate to password setup
         navigation.navigate('ModernPasswordSetup', {
           accountType,
@@ -143,31 +212,19 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
         });
       } else {
         setError(response.message || 'Invalid verification code. Please try again.');
-        // Shake animation
-        shakeAnimation.value = withSequence(
-          withTiming(-10, { duration: 50 }),
-          withTiming(10, { duration: 50 }),
-          withTiming(-10, { duration: 50 }),
-          withTiming(0, { duration: 50 })
-        );
-        setOtp(''); // Clear the OTP input
+        shakeInputs();
+        setOtp(['', '', '', '', '', '']); // Clear the OTP input
         setTimeout(() => {
-          inputRef.current?.focus();
+          inputRefs.current[0]?.focus();
         }, 200);
       }
     } catch (error: any) {
       console.error('❌ OTP verification error:', error);
       setError(error.message || 'Verification failed. Please try again.');
-      // Shake animation
-      shakeAnimation.value = withSequence(
-        withTiming(-10, { duration: 50 }),
-        withTiming(10, { duration: 50 }),
-        withTiming(-10, { duration: 50 }),
-        withTiming(0, { duration: 50 })
-      );
-      setOtp(''); // Clear the OTP input
+      shakeInputs();
+      setOtp(['', '', '', '', '', '']); // Clear the OTP input
       setTimeout(() => {
-        inputRef.current?.focus();
+        inputRefs.current[0]?.focus();
       }, 200);
     } finally {
       setIsLoading(false);
@@ -183,7 +240,14 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
       
       if (response.success) {
         console.log('✅ OTP resent successfully');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setResendCooldown(30);
+        setOtp(['', '', '', '', '', '']);
+        setError('');
+        
+        // Focus first input
+        inputRefs.current[0]?.focus();
+        
         const interval = setInterval(() => {
           setResendCooldown(prev => {
             if (prev <= 1) {
@@ -207,16 +271,7 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
     navigation.goBack();
   };
 
-  // Animated styles
-  const contentStyle = useAnimatedStyle(() => ({
-    opacity: contentOpacity.value,
-  }));
-
-  const otpContainerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: shakeAnimation.value }],
-  }));
-
-  const isFormValid = otp.length === 6;
+  const isFormValid = otp.every(d => d !== '');
 
   return (
     <SignupBackground
@@ -230,7 +285,7 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Animated.View style={[styles.content, contentStyle]}>
+        <View style={styles.content}>
           {/* Title Section */}
           <View style={styles.titleSection}>
             <View style={styles.iconContainer}>
@@ -244,41 +299,81 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
             <Text style={styles.emailText}>{email}</Text>
           </View>
 
-          {/* Hidden TextInput for actual input handling */}
-          <TextInput
-            ref={inputRef}
-            style={styles.hiddenInput}
-            value={otp}
-            onChangeText={handleOtpChange}
-            keyboardType="number-pad"
-            maxLength={6}
-            autoFocus={true}
-            selectionColor="transparent"
-          />
-
-          {/* Visual OTP Display */}
-          <Animated.View style={[styles.otpContainer, otpContainerStyle]}>
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.otpCell,
-                  otp[index] && styles.otpCellFilled,
-                  focusedIndex === index && styles.otpCellFocused,
-                  error && styles.otpCellError
-                ]}
-                onPress={() => handleCellPress(index)}
-                activeOpacity={0.7}
-              >
-                <Text style={[
-                  styles.otpText,
-                  otp[index] && styles.otpTextFilled
-                ]}>
-                  {otp[index] || ''}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </Animated.View>
+          {/* OTP Input with modern design */}
+          <View style={styles.otpWrapper}>
+            <Animated.View
+              style={[
+                styles.otpContainer,
+                { transform: [{ translateX: shakeAnimation }] }
+              ]}
+            >
+              {otp.map((digit, index) => (
+                <Animated.View
+                  key={index}
+                  style={[
+                    styles.otpCell,
+                    { transform: [{ scale: scaleAnimations[index] }] }
+                  ]}
+                >
+                  <View style={[
+                    styles.otpCellBorder,
+                    digit && styles.otpCellFilled,
+                    error && styles.otpCellError,
+                    inputRefs.current[index]?.isFocused?.() && styles.otpCellFocused
+                  ]}>
+                    <TextInput
+                      ref={(ref) => inputRefs.current[index] = ref}
+                      style={[
+                        styles.otpInput,
+                        digit && styles.otpInputFilled,
+                      ]}
+                      value={digit}
+                      onChangeText={(value) => handleOTPChange(value, index)}
+                      onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
+                      keyboardType="number-pad"
+                      maxLength={6} // Allow paste
+                      textAlign="center"
+                      autoFocus={index === 0}
+                      selectTextOnFocus
+                      returnKeyType="next"
+                      placeholder="•"
+                      placeholderTextColor="#E0E0E0"
+                    />
+                    {digit && (
+                      <View style={styles.digitHighlight}>
+                        <LinearGradient
+                          colors={[Colors.primary + '20', Colors.primary + '00']}
+                          style={styles.digitGlow}
+                        />
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.otpCellDot}>
+                    {digit ? (
+                      <LinearGradient
+                        colors={[Colors.primary, '#8B5CF6']}
+                        style={styles.otpCellDotFilled}
+                      />
+                    ) : (
+                      <View style={styles.otpCellDotEmpty} />
+                    )}
+                  </View>
+                </Animated.View>
+              ))}
+            </Animated.View>
+            
+            {/* Visual hint */}
+            <View style={styles.otpHint}>
+              <MaterialCommunityIcons 
+                name="gesture-tap" 
+                size={16} 
+                color="rgba(255, 255, 255, 0.6)" 
+              />
+              <Text style={styles.otpHintText}>
+                Tap to enter code
+              </Text>
+            </View>
+          </View>
 
           {/* Error Message */}
           {error && (
@@ -317,7 +412,7 @@ const ModernOTPVerificationScreen: React.FC<ModernOTPVerificationScreenProps> = 
               style={styles.verifyButton}
             />
           </View>
-        </Animated.View>
+        </View>
       </KeyboardAvoidingView>
     </SignupBackground>
   );
@@ -327,43 +422,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.primary,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  progressContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  progressBar: {
-    width: 120,
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 2,
-    marginBottom: 8,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.white,
-    borderRadius: 2,
-  },
-  progressText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontWeight: '500',
   },
   keyboardContainer: {
     flex: 1,
@@ -415,62 +473,94 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
-  hiddenInput: {
-    position: 'absolute',
-    top: -1000,
-    left: -1000,
-    width: 1,
-    height: 1,
-    opacity: 0,
+  otpWrapper: {
+    alignItems: 'center',
+    marginBottom: 20,
   },
   otpContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 32,
-    marginBottom: 32,
     gap: 10,
+    marginBottom: 16,
   },
   otpCell: {
-    width: 48,
-    height: 56,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+  },
+  otpCellBorder: {
+    width: 52,
+    height: 64,
+    borderRadius: 16,
+    borderWidth: 2.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
   },
   otpCellFilled: {
-    borderColor: Colors.primary,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 3,
-    transform: [{ scale: 1.05 }],
-    shadowColor: Colors.primary,
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  otpCellFocused: {
-    borderColor: Colors.primary,
-    borderWidth: 3,
+    borderColor: Colors.white,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: Colors.white,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
   otpCellError: {
     borderColor: '#FF2D55',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 45, 85, 0.1)',
   },
-  otpText: {
-    fontSize: 24,
+  otpCellFocused: {
+    borderColor: Colors.white,
+    borderWidth: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  otpInput: {
+    fontSize: 26,
     fontWeight: '700',
-    color: 'rgba(31, 41, 55, 0.3)',
+    color: Colors.white,
+    width: '100%',
+    height: '100%',
+    padding: 0,
+    backgroundColor: 'transparent',
   },
-  otpTextFilled: {
-    color: '#1F2937',
+  otpInputFilled: {
+    color: Colors.white,
+  },
+  digitHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  digitGlow: {
+    flex: 1,
+  },
+  otpCellDot: {
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  otpCellDotEmpty: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  otpCellDotFilled: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  otpHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    opacity: 0.6,
+  },
+  otpHintText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   errorContainer: {
     flexDirection: 'row',

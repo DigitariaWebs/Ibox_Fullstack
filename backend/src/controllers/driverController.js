@@ -5,9 +5,48 @@ import authService from '../services/authService.js';
 import notificationService from '../services/notificationService.js';
 import socketService from '../services/socketService.js';
 import twilioService from '../services/twilioService.js';
+import cloudinaryService from '../services/cloudinaryService.js';
+import emailService from '../services/emailService.js';
 import mongoose from 'mongoose';
 
 // ===== VERIFICATION METHODS =====
+
+// Helper function to determine verification step from document type
+const getVerificationStepFromDocumentType = (documentType) => {
+  const stepMapping = {
+    'profilePhoto': 'profilePhoto',
+    'driverLicense': 'driverLicense',
+    'vehicleFront': 'vehiclePhotos',
+    'vehicleBack': 'vehiclePhotos',
+    'vehicleLeft': 'vehiclePhotos',
+    'vehicleRight': 'vehiclePhotos',
+    'vehicleInterior': 'vehiclePhotos',
+    'licensePlate': 'vehiclePlate',
+    'insurance': 'insurance'
+  };
+  
+  return stepMapping[documentType] || null;
+};
+
+// Helper function to check if all documents for a step are uploaded
+const isStepComplete = (step, verificationDocuments, user) => {
+  switch (step) {
+    case 'profilePhoto':
+      return !!(verificationDocuments.profilePhoto || user.profilePicture);
+    case 'driverLicense':
+      return !!verificationDocuments.driverLicense;
+    case 'vehiclePhotos':
+      return !!(verificationDocuments.vehicleFront && verificationDocuments.vehicleBack && 
+                verificationDocuments.vehicleLeft && verificationDocuments.vehicleRight && 
+                verificationDocuments.vehicleInterior);
+    case 'vehiclePlate':
+      return !!verificationDocuments.licensePlate;
+    case 'insurance':
+      return !!verificationDocuments.insurance;
+    default:
+      return false;
+  }
+};
 
 const getVerificationStatus = async (req, res) => {
   try {
@@ -26,10 +65,12 @@ const getVerificationStatus = async (req, res) => {
 
     // Calculate verification progress
     const completedSteps = {
-      profilePhoto: !!user.profilePicture,
+      profilePhoto: !!(verificationDocuments.profilePhoto || user.profilePicture),
       phoneVerified: !!user.isPhoneVerified,
-      driverLicense: !!(verificationDocuments.driverLicenseFront && verificationDocuments.driverLicenseBack),
-      vehiclePhotos: !!(verificationDocuments.vehicleFront && verificationDocuments.vehicleBack),
+      driverLicense: !!verificationDocuments.driverLicense,
+      vehiclePhotos: !!(verificationDocuments.vehicleFront && verificationDocuments.vehicleBack && 
+                verificationDocuments.vehicleLeft && verificationDocuments.vehicleRight && 
+                verificationDocuments.vehicleInterior),
       vehiclePlate: !!verificationDocuments.licensePlate,
       insurance: !!verificationDocuments.insurance,
       backgroundCheck: !!transporterDetails.backgroundCheckConsent
@@ -39,16 +80,36 @@ const getVerificationStatus = async (req, res) => {
     const completedCount = Object.values(completedSteps).filter(Boolean).length;
     const verificationStep = completedCount;
     
+    // Check submission status for each step
+    const submissionStatus = transporterDetails.submissionStatus || {};
+    const stepSubmissionStatus = {
+      profilePhoto: submissionStatus.profilePhoto || { submitted: false, status: 'pending' },
+      phoneVerified: user.isPhoneVerified ? { submitted: true, status: 'approved', verifiedAt: user.phoneVerifiedAt } : { submitted: false, status: 'pending' },
+      driverLicense: submissionStatus.driverLicense || { submitted: false, status: 'pending' },
+      vehiclePhotos: submissionStatus.vehiclePhotos || { submitted: false, status: 'pending' },
+      vehiclePlate: submissionStatus.vehiclePlate || { submitted: false, status: 'pending' },
+      insurance: submissionStatus.insurance || { submitted: false, status: 'pending' },
+      backgroundCheck: transporterDetails.backgroundCheckConsent ? 
+        (submissionStatus.backgroundCheck || { submitted: true, status: 'pending' }) : 
+        { submitted: false, status: 'pending' }
+    };
+
+    // Check if any step is pending review
+    const hasPendingReview = Object.values(stepSubmissionStatus).some(step => 
+      step.submitted && step.status === 'pending'
+    );
+
     const verificationStatus = {
       isVerified: transporterDetails.isVerified || false,
       verificationStep,
       totalSteps,
       completedSteps,
-      pendingReview: completedCount === totalSteps && !transporterDetails.isVerified,
+      pendingReview: hasPendingReview,
       documents: verificationDocuments,
       backgroundCheckConsent: transporterDetails.backgroundCheckConsent || false,
       verifiedAt: transporterDetails.verifiedAt || null,
-      rejectionReason: transporterDetails.rejectionReason || null
+      rejectionReason: transporterDetails.rejectionReason || null,
+      submissionStatus: stepSubmissionStatus
     };
 
     res.json({
@@ -70,7 +131,7 @@ const getVerificationStatus = async (req, res) => {
 
 const uploadVerificationDocument = async (req, res) => {
   try {
-    const { documentType, documentUrl } = req.body;
+    const { documentType, imageData, documentUrl } = req.body;
     
     const user = await User.findById(req.userId);
     if (!user) {
@@ -81,6 +142,21 @@ const uploadVerificationDocument = async (req, res) => {
       });
     }
 
+    // Validate document type
+    const validDocumentTypes = [
+      'profilePhoto', 'driverLicense',
+      'vehicleFront', 'vehicleBack', 'vehicleLeft', 'vehicleRight', 
+      'vehicleInterior', 'licensePlate', 'insurance'
+    ];
+
+    if (!validDocumentTypes.includes(documentType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid document type',
+        code: 'INVALID_DOCUMENT_TYPE'
+      });
+    }
+
     // Initialize transporterDetails and verificationDocuments if not exists
     if (!user.transporterDetails) {
       user.transporterDetails = {};
@@ -88,10 +164,109 @@ const uploadVerificationDocument = async (req, res) => {
     if (!user.transporterDetails.verificationDocuments) {
       user.transporterDetails.verificationDocuments = {};
     }
+    if (!user.transporterDetails.submissionStatus) {
+      user.transporterDetails.submissionStatus = {};
+    }
 
-    // Store document URL
-    user.transporterDetails.verificationDocuments[documentType] = documentUrl;
+    // Check if this document type is already submitted and pending review
+    const verificationStep = getVerificationStepFromDocumentType(documentType);
+    if (verificationStep) {
+      const stepStatus = user.transporterDetails.submissionStatus[verificationStep];
+      if (stepStatus && stepStatus.submitted && stepStatus.status === 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: `Documents for ${verificationStep} have already been submitted and are pending admin review. Please wait for approval before resubmitting.`,
+          code: 'ALREADY_SUBMITTED',
+          data: {
+            step: verificationStep,
+            submittedAt: stepStatus.submittedAt,
+            status: stepStatus.status
+          }
+        });
+      }
+    }
+
+    let documentData = null;
+
+    // Handle Base64 image data
+    if (imageData) {
+      // Validate Base64 image format
+      if (!imageData.startsWith('data:image/')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid image format. Must be Base64 encoded image.',
+          code: 'INVALID_IMAGE_DATA'
+        });
+      }
+
+      // Upload to Cloudinary
+      try {
+        console.log(`☁️  Uploading ${documentType} to Cloudinary...`);
+        documentData = await cloudinaryService.uploadVerificationDocument(
+          imageData, 
+          documentType, 
+          req.userId
+        );
+        console.log(`✅ ${documentType} uploaded to Cloudinary successfully`);
+      } catch (cloudinaryError) {
+        console.error('Cloudinary upload failed:', cloudinaryError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to upload image to cloud storage',
+          code: 'CLOUDINARY_UPLOAD_ERROR'
+        });
+      }
+    }
+    // Handle URL (for backward compatibility)
+    else if (documentUrl) {
+      documentData = documentUrl;
+    }
+    else {
+      return res.status(400).json({
+        success: false,
+        message: 'Either imageData or documentUrl is required',
+        code: 'MISSING_DOCUMENT_DATA'
+      });
+    }
+
+    // Store document data
+    user.transporterDetails.verificationDocuments[documentType] = documentData;
     user.transporterDetails.lastDocumentUpload = new Date();
+
+    // Special handling for profile photo - sync to user.profilePicture
+    if (documentType === 'profilePhoto') {
+      user.profilePicture = documentData;
+      console.log('📸 Profile photo synced to user.profilePicture field');
+    }
+
+    // Check if the verification step is now complete and mark as submitted
+    if (verificationStep) {
+      const isComplete = isStepComplete(verificationStep, user.transporterDetails.verificationDocuments, user);
+      if (isComplete) {
+        // Initialize submission status if not exists
+        if (!user.transporterDetails.submissionStatus[verificationStep]) {
+          user.transporterDetails.submissionStatus[verificationStep] = {
+            submitted: false,
+            submittedAt: null,
+            status: 'pending',
+            reviewedAt: null,
+            reviewedBy: null,
+            rejectionReason: null
+          };
+        }
+        
+        // Mark step as submitted if not already submitted or if previously rejected
+        const currentStatus = user.transporterDetails.submissionStatus[verificationStep];
+        if (!currentStatus.submitted || currentStatus.status === 'rejected') {
+          user.transporterDetails.submissionStatus[verificationStep] = {
+            ...currentStatus,
+            submitted: true,
+            submittedAt: new Date(),
+            status: 'pending'
+          };
+        }
+      }
+    }
 
     await user.save();
 
@@ -99,17 +274,27 @@ const uploadVerificationDocument = async (req, res) => {
     await authService.logSecurityEvent(req.userId, 'verification_document_uploaded', {
       documentType,
       timestamp: new Date(),
-      ip: req.ip
+      ip: req.ip,
+      dataSize: imageData ? imageUploadService.getFileInfo(imageData).size : null
     });
+
+    // Create notification for successful upload
+    await notificationService.createNotification(
+      req.userId,
+      'Document Uploaded',
+      `${documentType.replace(/([A-Z])/g, ' $1').toLowerCase()} uploaded successfully`,
+      'verification'
+    );
 
     res.json({
       success: true,
       message: 'Document uploaded successfully',
-      data: {
-        documentType,
-        uploaded: true,
-        verificationDocuments: user.transporterDetails.verificationDocuments
-      }
+        data: {
+          documentType,
+          uploaded: true,
+          cloudinaryUrl: documentData,
+          verificationDocuments: user.transporterDetails.verificationDocuments
+        }
     });
 
   } catch (error) {
@@ -167,6 +352,202 @@ const submitBackgroundConsent = async (req, res) => {
       success: false,
       message: 'Error submitting background consent',
       code: 'CONSENT_SUBMISSION_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const uploadMultipleDocuments = async (req, res) => {
+  try {
+    const { documents } = req.body; // Array of { documentType, imageData }
+    
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    if (!Array.isArray(documents) || documents.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Documents array is required',
+        code: 'INVALID_DOCUMENTS_ARRAY'
+      });
+    }
+
+    // Initialize transporterDetails and verificationDocuments if not exists
+    if (!user.transporterDetails) {
+      user.transporterDetails = {};
+    }
+    if (!user.transporterDetails.verificationDocuments) {
+      user.transporterDetails.verificationDocuments = {};
+    }
+    if (!user.transporterDetails.submissionStatus) {
+      user.transporterDetails.submissionStatus = {};
+    }
+
+    const validDocumentTypes = [
+      'profilePhoto', 'driverLicense',
+      'vehicleFront', 'vehicleBack', 'vehicleLeft', 'vehicleRight', 
+      'vehicleInterior', 'licensePlate', 'insurance'
+    ];
+
+    const uploadedDocuments = [];
+    const errors = [];
+
+    // Process each document
+    for (const doc of documents) {
+      const { documentType, imageData } = doc;
+
+      try {
+        // Check if this document type is already submitted and pending review
+        const verificationStep = getVerificationStepFromDocumentType(documentType);
+        if (verificationStep) {
+          const stepStatus = user.transporterDetails.submissionStatus[verificationStep];
+          if (stepStatus && stepStatus.submitted && stepStatus.status === 'pending') {
+            errors.push({
+              documentType,
+              error: `Documents for ${verificationStep} have already been submitted and are pending admin review`
+            });
+            continue;
+          }
+        }
+
+        // Validate document type
+        if (!validDocumentTypes.includes(documentType)) {
+          errors.push({
+            documentType,
+            error: 'Invalid document type'
+          });
+          continue;
+        }
+
+        // Validate Base64 image format
+        if (!imageData || !imageData.startsWith('data:image/')) {
+          errors.push({
+            documentType,
+            error: 'Invalid image format. Must be Base64 encoded image.'
+          });
+          continue;
+        }
+
+        // Upload to Cloudinary
+        try {
+          console.log(`☁️  Bulk uploading ${documentType} to Cloudinary...`);
+          const cloudinaryUrl = await cloudinaryService.uploadVerificationDocument(
+            imageData, 
+            documentType, 
+            req.userId
+          );
+          
+          // Store Cloudinary URL
+          user.transporterDetails.verificationDocuments[documentType] = cloudinaryUrl;
+          
+          // Special handling for profile photo - sync to user.profilePicture
+          if (documentType === 'profilePhoto') {
+            user.profilePicture = cloudinaryUrl;
+            console.log('📸 Profile photo synced to user.profilePicture field');
+          }
+          
+          console.log(`✅ ${documentType} uploaded to Cloudinary successfully`);
+        } catch (cloudinaryError) {
+          errors.push({
+            documentType,
+            error: `Failed to upload to cloud storage: ${cloudinaryError.message}`
+          });
+          continue;
+        }
+        
+        uploadedDocuments.push({
+          documentType,
+          uploaded: true,
+          cloudinaryUrl: user.transporterDetails.verificationDocuments[documentType]
+        });
+
+        console.log(`📸 Bulk uploaded ${documentType} to Cloudinary`);
+
+      } catch (error) {
+        errors.push({
+          documentType,
+          error: error.message
+        });
+      }
+    }
+
+    // Update last document upload time
+    user.transporterDetails.lastDocumentUpload = new Date();
+
+    // Check if any verification steps are now complete and mark as submitted
+    const verificationSteps = ['profilePhoto', 'driverLicense', 'vehiclePhotos', 'vehiclePlate', 'insurance'];
+    for (const step of verificationSteps) {
+      const isComplete = isStepComplete(step, user.transporterDetails.verificationDocuments, user);
+      if (isComplete) {
+        // Initialize submission status if not exists
+        if (!user.transporterDetails.submissionStatus[step]) {
+          user.transporterDetails.submissionStatus[step] = {
+            submitted: false,
+            submittedAt: null,
+            status: 'pending',
+            reviewedAt: null,
+            reviewedBy: null,
+            rejectionReason: null
+          };
+        }
+        
+        // Mark step as submitted if not already submitted or if previously rejected
+        const currentStatus = user.transporterDetails.submissionStatus[step];
+        if (!currentStatus.submitted || currentStatus.status === 'rejected') {
+          user.transporterDetails.submissionStatus[step] = {
+            ...currentStatus,
+            submitted: true,
+            submittedAt: new Date(),
+            status: 'pending'
+          };
+        }
+      }
+    }
+
+    await user.save();
+
+    // Log security event
+    await authService.logSecurityEvent(req.userId, 'bulk_documents_uploaded', {
+      documentCount: uploadedDocuments.length,
+      errorCount: errors.length,
+      timestamp: new Date(),
+      ip: req.ip
+    });
+
+    // Create notification for successful upload
+    if (uploadedDocuments.length > 0) {
+      await notificationService.createNotification(
+        req.userId,
+        'Documents Uploaded',
+        `${uploadedDocuments.length} verification document(s) uploaded successfully`,
+        'verification'
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully uploaded ${uploadedDocuments.length} document(s)`,
+      data: {
+        uploadedDocuments,
+        errors: errors.length > 0 ? errors : undefined,
+        verificationDocuments: user.transporterDetails.verificationDocuments,
+        totalUploaded: uploadedDocuments.length,
+        totalErrors: errors.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Upload multiple documents error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading documents',
+      code: 'BULK_UPLOAD_ERROR',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -304,6 +685,24 @@ const verifyPhoneCode = async (req, res) => {
       user.phoneVerificationCode = undefined;
       user.phoneVerificationExpires = undefined;
       
+      // Initialize transporterDetails and submissionStatus if not exists
+      if (!user.transporterDetails) {
+        user.transporterDetails = {};
+      }
+      if (!user.transporterDetails.submissionStatus) {
+        user.transporterDetails.submissionStatus = {};
+      }
+      
+      // Automatically mark phone verification as approved in submission status
+      user.transporterDetails.submissionStatus.phoneVerified = {
+        submitted: true,
+        submittedAt: user.phoneVerifiedAt,
+        status: 'approved',
+        reviewedAt: user.phoneVerifiedAt,
+        reviewedBy: 'system',
+        verifiedAt: user.phoneVerifiedAt
+      };
+      
       await user.save();
 
       // Log security event
@@ -321,6 +720,16 @@ const verifyPhoneCode = async (req, res) => {
         'Your phone number has been successfully verified!',
         'verification'
       );
+
+      // Send real-time notification via WebSocket
+      if (socketService) {
+        socketService.notifyVerificationStatusUpdate(req.userId, 'verification_step', 'approved', {
+          step: 'phoneVerified',
+          approvedAt: user.phoneVerifiedAt,
+          approvedBy: 'system',
+          overallStatus: user.transporterDetails?.verificationStatus || 'pending'
+        });
+      }
 
       res.json({
         success: true,
@@ -648,13 +1057,13 @@ const getAvailableDeliveries = async (req, res) => {
     // Transform orders to delivery requests format
     const deliveries = orders.map(order => ({
       id: order._id,
-      customerName: `${order.customer.firstName} ${order.customer.lastName}`,
+      customerName: order.customer ? `${order.customer.firstName} ${order.customer.lastName}` : 'Unknown Customer',
       serviceType: order.serviceType,
-      pickupAddress: order.pickupLocation.address,
-      deliveryAddress: order.deliveryLocation.address,
-      distance: order.distance || '5.2 km',
-      estimatedTime: order.estimatedDeliveryTime || '30-45 min',
-      price: order.pricing?.driverEarnings || order.pricing?.total * 0.8 || 0,
+      pickupAddress: order.pickupLocation?.address || 'Address not available',
+      deliveryAddress: order.dropoffLocation?.address || 'Address not available',
+      distance: order.estimatedDistance ? `${(order.estimatedDistance / 1000).toFixed(1)} km` : '5.2 km',
+      estimatedTime: order.estimatedDuration ? `${Math.round(order.estimatedDuration / 60)}-${Math.round(order.estimatedDuration / 60) + 15} min` : '30-45 min',
+      price: order.pricing?.driverEarnings || (order.pricing?.totalAmount * 0.8) || 0,
       weight: order.packageDetails?.weight || null,
       description: order.packageDetails?.description || order.specialInstructions?.join(', ') || 'Package delivery',
       urgency: order.priority || 'normal',
@@ -823,16 +1232,16 @@ const getActiveDeliveries = async (req, res) => {
 
     const deliveries = activeOrders.map(order => ({
       id: order._id,
-      customerName: `${order.customer.firstName} ${order.customer.lastName}`,
-      customerPhone: order.customer.phone,
+      customerName: order.customer ? `${order.customer.firstName} ${order.customer.lastName}` : 'Unknown Customer',
+      customerPhone: order.customer?.phone || 'No phone',
       serviceType: order.serviceType,
       status: order.status,
-      pickupAddress: order.pickupLocation.address,
-      deliveryAddress: order.deliveryLocation.address,
+      pickupAddress: order.pickupLocation?.address || 'Address not available',
+      deliveryAddress: order.dropoffLocation?.address || 'Address not available',
       acceptedAt: order.acceptedAt,
       pickedUpAt: order.pickedUpAt,
       estimatedDeliveryTime: order.estimatedDeliveryTime,
-      earnings: order.pricing?.driverEarnings || order.pricing?.total * 0.8 || 0,
+      earnings: order.pricing?.driverEarnings || (order.pricing?.totalAmount * 0.8) || 0,
       specialInstructions: order.specialInstructions || []
     }));
 
@@ -874,13 +1283,13 @@ const getDeliveryHistory = async (req, res) => {
 
     const deliveries = orders.map(order => ({
       id: order._id,
-      customerName: `${order.customer.firstName} ${order.customer.lastName}`,
+      customerName: order.customer ? `${order.customer.firstName} ${order.customer.lastName}` : 'Unknown Customer',
       serviceType: order.serviceType,
       status: order.status,
-      pickupAddress: order.pickupLocation.address,
-      deliveryAddress: order.deliveryLocation.address,
+      pickupAddress: order.pickupLocation?.address || 'Address not available',
+      deliveryAddress: order.dropoffLocation?.address || 'Address not available',
       completedAt: order.deliveredAt || order.updatedAt,
-      earnings: order.pricing?.driverEarnings || order.pricing?.total * 0.8 || 0,
+      earnings: order.pricing?.driverEarnings || (order.pricing?.totalAmount * 0.8) || 0,
       rating: order.rating?.transporterRating || null,
       feedback: order.rating?.transporterFeedback || null
     }));
@@ -1573,10 +1982,671 @@ const updateLocation = async (req, res) => {
   }
 };
 
+// ===== ADMIN VERIFICATION METHODS =====
+
+const getAllPendingVerifications = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status = 'pending' } = req.query;
+    
+    const query = {
+      userType: 'transporter',
+      'transporterDetails.verificationStatus': status
+    };
+
+    const skip = (page - 1) * limit;
+    
+    const drivers = await User.find(query)
+      .select('_id firstName lastName email phone isPhoneVerified createdAt transporterDetails profilePicture')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalCount = await User.countDocuments(query);
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // Calculate verification progress for each driver
+    const driversWithProgress = drivers.map(driver => {
+      const transporterDetails = driver.transporterDetails || {};
+      const verificationDocuments = transporterDetails.verificationDocuments || {};
+      
+      const completedSteps = {
+        profilePhoto: !!(verificationDocuments.profilePhoto || driver.profilePicture),
+        phoneVerified: !!driver.isPhoneVerified,
+        driverLicense: !!verificationDocuments.driverLicense,
+        vehiclePhotos: !!(verificationDocuments.vehicleFront && verificationDocuments.vehicleBack && 
+                verificationDocuments.vehicleLeft && verificationDocuments.vehicleRight && 
+                verificationDocuments.vehicleInterior),
+        vehiclePlate: !!verificationDocuments.licensePlate,
+        insurance: !!verificationDocuments.insurance,
+        backgroundCheck: !!transporterDetails.backgroundCheckConsent
+      };
+
+      const totalSteps = Object.keys(completedSteps).length;
+      const completedCount = Object.values(completedSteps).filter(Boolean).length;
+      const progressPercentage = Math.round((completedCount / totalSteps) * 100);
+
+      return {
+        _id: driver._id,
+        name: `${driver.firstName || ''} ${driver.lastName || ''}`.trim() || 'Unknown',
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        email: driver.email,
+        phone: driver.phone,
+        isPhoneVerified: driver.isPhoneVerified,
+        createdAt: driver.createdAt,
+        verificationStatus: transporterDetails.verificationStatus || 'pending',
+        verificationProgress: {
+          completed: completedCount,
+          total: totalSteps,
+          percentage: progressPercentage,
+          steps: completedSteps
+        },
+        verificationDocuments: verificationDocuments,
+        backgroundCheckConsent: transporterDetails.backgroundCheckConsent || false,
+        lastDocumentUpload: transporterDetails.lastDocumentUpload || null,
+        rejectionReason: transporterDetails.rejectionReason || null,
+        verifiedAt: transporterDetails.verifiedAt || null
+      };
+    });
+
+    res.json({
+      success: true,
+      message: 'Pending verifications retrieved successfully',
+      data: {
+        drivers: driversWithProgress,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalCount,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get pending verifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving pending verifications',
+      code: 'VERIFICATION_LIST_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const getDriverVerificationDetails = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    const driver = await User.findById(driverId);
+    if (!driver || driver.userType !== 'transporter') {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found',
+        code: 'DRIVER_NOT_FOUND'
+      });
+    }
+
+    const transporterDetails = driver.transporterDetails || {};
+    const verificationDocuments = transporterDetails.verificationDocuments || {};
+    
+    const completedSteps = {
+      profilePhoto: !!(verificationDocuments.profilePhoto || driver.profilePicture),
+      phoneVerified: !!driver.isPhoneVerified,
+      driverLicense: !!verificationDocuments.driverLicense,
+      vehiclePhotos: !!(verificationDocuments.vehicleFront && verificationDocuments.vehicleBack && 
+                verificationDocuments.vehicleLeft && verificationDocuments.vehicleRight && 
+                verificationDocuments.vehicleInterior),
+      vehiclePlate: !!verificationDocuments.licensePlate,
+      insurance: !!verificationDocuments.insurance,
+      backgroundCheck: !!transporterDetails.backgroundCheckConsent
+    };
+
+    const totalSteps = Object.keys(completedSteps).length;
+    const completedCount = Object.values(completedSteps).filter(Boolean).length;
+    const progressPercentage = Math.round((completedCount / totalSteps) * 100);
+
+    const verificationDetails = {
+      driver: {
+        id: driver._id,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        email: driver.email,
+        phone: driver.phone,
+        isPhoneVerified: driver.isPhoneVerified,
+        createdAt: driver.createdAt,
+        profilePicture: driver.profilePicture
+      },
+      verification: {
+        status: transporterDetails.verificationStatus || 'pending',
+        progress: {
+          completed: completedCount,
+          total: totalSteps,
+          percentage: progressPercentage,
+          steps: completedSteps
+        },
+        submissionStatus: {
+          ...transporterDetails.submissionStatus,
+          phoneVerified: driver.isPhoneVerified ? { submitted: true, status: 'approved', verifiedAt: driver.phoneVerifiedAt } : { submitted: false, status: 'pending' },
+          backgroundCheck: transporterDetails.backgroundCheckConsent ? 
+            (transporterDetails.submissionStatus?.backgroundCheck || { submitted: true, status: 'pending' }) : 
+            { submitted: false, status: 'pending' }
+        },
+        documents: verificationDocuments,
+        backgroundCheckConsent: transporterDetails.backgroundCheckConsent || false,
+        lastDocumentUpload: transporterDetails.lastDocumentUpload || null,
+        rejectionReason: transporterDetails.rejectionReason || null,
+        verifiedAt: transporterDetails.verifiedAt || null,
+        verifiedBy: transporterDetails.verifiedBy || null
+      }
+    };
+
+    res.json({
+      success: true,
+      message: 'Driver verification details retrieved successfully',
+      data: verificationDetails
+    });
+
+  } catch (error) {
+    console.error('Get driver verification details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving driver verification details',
+      code: 'VERIFICATION_DETAILS_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const approveDriverVerification = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { notes } = req.body;
+    const adminId = req.userId; // Admin user ID from auth middleware
+    
+    const driver = await User.findById(driverId);
+    if (!driver || driver.userType !== 'transporter') {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found',
+        code: 'DRIVER_NOT_FOUND'
+      });
+    }
+
+    if (!driver.transporterDetails) {
+      driver.transporterDetails = {};
+    }
+
+    // Check if all required documents are uploaded
+    const verificationDocuments = driver.transporterDetails.verificationDocuments || {};
+    const completedSteps = {
+      profilePhoto: !!driver.profilePicture,
+      phoneVerified: !!driver.isPhoneVerified,
+      driverLicense: !!verificationDocuments.driverLicense,
+      vehiclePhotos: !!(verificationDocuments.vehicleFront && verificationDocuments.vehicleBack && 
+                verificationDocuments.vehicleLeft && verificationDocuments.vehicleRight && 
+                verificationDocuments.vehicleInterior),
+      vehiclePlate: !!verificationDocuments.licensePlate,
+      insurance: !!verificationDocuments.insurance,
+      backgroundCheck: !!driver.transporterDetails.backgroundCheckConsent
+    };
+
+    const totalSteps = Object.keys(completedSteps).length;
+    const completedCount = Object.values(completedSteps).filter(Boolean).length;
+
+    if (completedCount < totalSteps) {
+      return res.status(400).json({
+        success: false,
+        message: 'Driver has not completed all verification steps',
+        code: 'INCOMPLETE_VERIFICATION',
+        data: {
+          completed: completedCount,
+          total: totalSteps,
+          missingSteps: Object.entries(completedSteps)
+            .filter(([_, completed]) => !completed)
+            .map(([step, _]) => step)
+        }
+      });
+    }
+
+    // Approve the driver
+    driver.transporterDetails.isVerified = true;
+    driver.transporterDetails.verificationStatus = 'approved';
+    driver.transporterDetails.verifiedAt = new Date();
+    driver.transporterDetails.verifiedBy = adminId;
+    driver.transporterDetails.verificationNotes = notes || 'Driver verification approved by admin';
+
+    await driver.save();
+
+    // Log admin action
+    await authService.logSecurityEvent(adminId, 'driver_verification_approved', {
+      driverId,
+      driverEmail: driver.email,
+      timestamp: new Date(),
+      ip: req.ip,
+      notes
+    });
+
+    // Send notification to driver
+    await notificationService.createNotification(
+      driverId,
+      'Verification Approved! 🎉',
+      'Congratulations! Your driver verification has been approved. You can now start accepting delivery requests.',
+      'verification'
+    );
+
+    // Send email notification to driver
+    try {
+      const emailResult = await emailService.sendDriverApprovalEmail(
+        driver.email,
+        driver.firstName
+      );
+      
+      if (emailResult.success) {
+        console.log('✅ Driver approval email sent successfully:', {
+          driverId,
+          driverEmail: driver.email,
+          messageId: emailResult.messageId
+        });
+      } else {
+        console.error('❌ Failed to send driver approval email:', {
+          driverId,
+          driverEmail: driver.email,
+          error: emailResult.error
+        });
+      }
+    } catch (emailError) {
+      console.error('❌ Email service error:', emailError);
+      // Don't fail the approval if email fails
+    }
+
+    // Send real-time notification via WebSocket
+    if (socketService) {
+      socketService.notifyVerificationStatusUpdate(driverId, 'driver_verification', 'approved', {
+        verifiedAt: driver.transporterDetails.verifiedAt,
+        verifiedBy: adminId,
+        notes: driver.transporterDetails.verificationNotes
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Driver verification approved successfully',
+      data: {
+        driverId,
+        verifiedAt: driver.transporterDetails.verifiedAt,
+        verifiedBy: adminId,
+        notes: driver.transporterDetails.verificationNotes
+      }
+    });
+
+  } catch (error) {
+    console.error('Approve driver verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error approving driver verification',
+      code: 'VERIFICATION_APPROVAL_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const rejectDriverVerification = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { reason, notes } = req.body;
+    const adminId = req.userId; // Admin user ID from auth middleware
+    
+    if (!reason || reason.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required',
+        code: 'MISSING_REJECTION_REASON'
+      });
+    }
+
+    const driver = await User.findById(driverId);
+    if (!driver || driver.userType !== 'transporter') {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found',
+        code: 'DRIVER_NOT_FOUND'
+      });
+    }
+
+    if (!driver.transporterDetails) {
+      driver.transporterDetails = {};
+    }
+
+    // Reject the driver
+    driver.transporterDetails.isVerified = false;
+    driver.transporterDetails.verificationStatus = 'rejected';
+    driver.transporterDetails.rejectionReason = reason;
+    driver.transporterDetails.rejectedAt = new Date();
+    driver.transporterDetails.rejectedBy = adminId;
+    driver.transporterDetails.verificationNotes = notes || 'Driver verification rejected by admin';
+
+    await driver.save();
+
+    // Log admin action
+    await authService.logSecurityEvent(adminId, 'driver_verification_rejected', {
+      driverId,
+      driverEmail: driver.email,
+      reason,
+      timestamp: new Date(),
+      ip: req.ip,
+      notes
+    });
+
+    // Send notification to driver
+    await notificationService.createNotification(
+      driverId,
+      'Verification Update',
+      `Your driver verification was not approved. Reason: ${reason}. Please review and resubmit your documents.`,
+      'verification'
+    );
+
+    res.json({
+      success: true,
+      message: 'Driver verification rejected successfully',
+      data: {
+        driverId,
+        rejectedAt: driver.transporterDetails.rejectedAt,
+        rejectedBy: adminId,
+        reason: driver.transporterDetails.rejectionReason,
+        notes: driver.transporterDetails.verificationNotes
+      }
+    });
+
+  } catch (error) {
+    console.error('Reject driver verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error rejecting driver verification',
+      code: 'VERIFICATION_REJECTION_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const getVerificationStats = async (req, res) => {
+  try {
+    const stats = await User.aggregate([
+      {
+        $match: { userType: 'transporter' }
+      },
+      {
+        $group: {
+          _id: '$transporterDetails.verificationStatus',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const totalDrivers = await User.countDocuments({ userType: 'transporter' });
+    
+    const verificationStats = {
+      total: totalDrivers,
+      pending: stats.find(s => s._id === 'pending')?.count || 0,
+      approved: stats.find(s => s._id === 'approved')?.count || 0,
+      rejected: stats.find(s => s._id === 'rejected')?.count || 0,
+      underReview: stats.find(s => s._id === 'under_review')?.count || 0
+    };
+
+    res.json({
+      success: true,
+      message: 'Verification statistics retrieved successfully',
+      data: verificationStats
+    });
+
+  } catch (error) {
+    console.error('Get verification stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving verification statistics',
+      code: 'VERIFICATION_STATS_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Approve individual driver verification step
+const approveDriverStep = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { step } = req.body;
+    const adminId = req.userId; // Admin user ID from auth middleware
+    
+    const driver = await User.findById(driverId);
+    if (!driver || driver.userType !== 'transporter') {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found',
+        code: 'DRIVER_NOT_FOUND'
+      });
+    }
+
+    if (!driver.transporterDetails) {
+      driver.transporterDetails = {};
+    }
+
+    // Validate step
+    const validSteps = ['profilePhoto', 'phoneVerified', 'driverLicense', 'vehiclePhotos', 'vehiclePlate', 'insurance', 'backgroundCheck'];
+    if (!validSteps.includes(step)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification step',
+        code: 'INVALID_STEP'
+      });
+    }
+
+    // Initialize submission status if not exists
+    if (!driver.transporterDetails.submissionStatus) {
+      driver.transporterDetails.submissionStatus = {};
+    }
+    if (!driver.transporterDetails.submissionStatus[step]) {
+      driver.transporterDetails.submissionStatus[step] = {
+        submitted: false,
+        submittedAt: null,
+        status: 'pending',
+        reviewedAt: null,
+        reviewedBy: null,
+        rejectionReason: null
+      };
+    }
+
+    // Mark the specific step as approved
+    driver.transporterDetails.submissionStatus[step].status = 'approved';
+    driver.transporterDetails.submissionStatus[step].reviewedAt = new Date();
+    driver.transporterDetails.submissionStatus[step].reviewedBy = adminId;
+
+    // Update verification progress to reflect the approved step
+    if (!driver.transporterDetails.verificationProgress) {
+      driver.transporterDetails.verificationProgress = {};
+    }
+    driver.transporterDetails.verificationProgress[step] = true;
+
+    // Check if all steps are now approved and update overall verification status
+    const allSteps = ['profilePhoto', 'phoneVerified', 'driverLicense', 'vehiclePhotos', 'vehiclePlate', 'insurance', 'backgroundCheck'];
+    const approvedSteps = allSteps.filter(stepName => {
+      const stepStatus = driver.transporterDetails.submissionStatus[stepName];
+      return stepStatus && stepStatus.status === 'approved';
+    });
+
+    if (approvedSteps.length === allSteps.length) {
+      driver.transporterDetails.verificationStatus = 'approved';
+      driver.transporterDetails.isVerified = true;
+      driver.transporterDetails.verifiedAt = new Date();
+      driver.transporterDetails.verifiedBy = adminId;
+    }
+
+    // Log the action
+    await authService.logSecurityEvent(adminId, 'driver_step_approved', {
+      driverId: driverId,
+      step: step,
+      driverEmail: driver.email
+    });
+
+    // Send notification to driver
+    await notificationService.sendPushNotification(driverId, 'Verification Update', `Your ${step} verification step has been approved!`);
+
+    // Send real-time notification via WebSocket
+    if (socketService) {
+      socketService.notifyVerificationStatusUpdate(driverId, 'verification_step', 'approved', {
+        step: step,
+        approvedAt: driver.transporterDetails.submissionStatus[step].reviewedAt,
+        approvedBy: adminId,
+        overallStatus: driver.transporterDetails.verificationStatus
+      });
+    }
+
+    await driver.save();
+
+    res.json({
+      success: true,
+      message: `${step} verification step approved successfully`,
+      data: {
+        step: step,
+        approvedAt: driver.transporterDetails.submissionStatus[step].reviewedAt,
+        approvedBy: adminId
+      }
+    });
+
+  } catch (error) {
+    console.error('Approve driver step error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error approving driver step',
+      code: 'STEP_APPROVAL_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Reject individual driver verification step
+const rejectDriverStep = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { step, reason } = req.body;
+    const adminId = req.userId; // Admin user ID from auth middleware
+    
+    const driver = await User.findById(driverId);
+    if (!driver || driver.userType !== 'transporter') {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found',
+        code: 'DRIVER_NOT_FOUND'
+      });
+    }
+
+    if (!driver.transporterDetails) {
+      driver.transporterDetails = {};
+    }
+
+    // Validate step
+    const validSteps = ['profilePhoto', 'phoneVerified', 'driverLicense', 'vehiclePhotos', 'vehiclePlate', 'insurance', 'backgroundCheck'];
+    if (!validSteps.includes(step)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification step',
+        code: 'INVALID_STEP'
+      });
+    }
+
+    // Validate reason
+    if (!reason || reason.trim().length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason must be at least 10 characters long',
+        code: 'INVALID_REASON'
+      });
+    }
+
+    // Initialize submission status if not exists
+    if (!driver.transporterDetails.submissionStatus) {
+      driver.transporterDetails.submissionStatus = {};
+    }
+    if (!driver.transporterDetails.submissionStatus[step]) {
+      driver.transporterDetails.submissionStatus[step] = {
+        submitted: false,
+        submittedAt: null,
+        status: 'pending',
+        reviewedAt: null,
+        reviewedBy: null,
+        rejectionReason: null
+      };
+    }
+
+    // Mark the specific step as rejected
+    driver.transporterDetails.submissionStatus[step].status = 'rejected';
+    driver.transporterDetails.submissionStatus[step].reviewedAt = new Date();
+    driver.transporterDetails.submissionStatus[step].reviewedBy = adminId;
+    driver.transporterDetails.submissionStatus[step].rejectionReason = reason.trim();
+
+    // Update verification progress to reflect the rejected step
+    if (!driver.transporterDetails.verificationProgress) {
+      driver.transporterDetails.verificationProgress = {};
+    }
+    driver.transporterDetails.verificationProgress[step] = false;
+
+    // Ensure overall verification status is not approved if any step is rejected
+    if (driver.transporterDetails.verificationStatus === 'approved') {
+      driver.transporterDetails.verificationStatus = 'pending';
+      driver.transporterDetails.isVerified = false;
+    }
+
+    // Log the action
+    await authService.logSecurityEvent(adminId, 'driver_step_rejected', {
+      driverId: driverId,
+      step: step,
+      reason: reason.trim(),
+      driverEmail: driver.email
+    });
+
+    // Send notification to driver
+    await notificationService.sendPushNotification(driverId, 'Verification Update', `Your ${step} verification step was rejected. Please check the reason and resubmit.`);
+
+    // Send real-time notification via WebSocket
+    if (socketService) {
+      socketService.notifyVerificationStatusUpdate(driverId, 'verification_step', 'rejected', {
+        step: step,
+        rejectedAt: driver.transporterDetails.submissionStatus[step].reviewedAt,
+        rejectedBy: adminId,
+        reason: reason.trim(),
+        overallStatus: driver.transporterDetails.verificationStatus
+      });
+    }
+
+    await driver.save();
+
+    res.json({
+      success: true,
+      message: `${step} verification step rejected successfully`,
+      data: {
+        step: step,
+        rejectedAt: driver.transporterDetails.submissionStatus[step].reviewedAt,
+        rejectedBy: adminId,
+        reason: reason.trim()
+      }
+    });
+
+  } catch (error) {
+    console.error('Reject driver step error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error rejecting driver step',
+      code: 'STEP_REJECTION_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 export default {
   // Verification
   getVerificationStatus,
   uploadVerificationDocument,
+  uploadMultipleDocuments,
   submitBackgroundConsent,
   
   // Phone Verification
@@ -1614,6 +2684,15 @@ export default {
   getRatingDetails,
   
   // Location
-  updateLocation
+  updateLocation,
+  
+  // Admin Verification
+  getAllPendingVerifications,
+  getDriverVerificationDetails,
+  approveDriverVerification,
+  rejectDriverVerification,
+  getVerificationStats,
+  approveDriverStep,
+  rejectDriverStep
 };
 

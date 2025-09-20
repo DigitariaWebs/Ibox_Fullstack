@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import authService from '../services/authService.js';
 import otpService from '../services/otpService.js';
+import OTP from '../models/OTP.js';
 import { validationResult } from 'express-validator';
 
 class AuthController {
@@ -111,12 +112,15 @@ class AuthController {
         });
       }
 
-      // Check phone number uniqueness
-      const existingPhone = await User.findOne({ phone });
+      // Check phone number uniqueness (same phone can be used by different user types)
+      const existingPhone = await User.findOne({ 
+        phone: phone.trim(),
+        userType: userType 
+      });
       if (existingPhone) {
         return res.status(400).json({
           success: false,
-          message: 'A user already exists with this phone number.',
+          message: `A ${userType} already exists with this phone number.`,
           code: 'PHONE_EXISTS'
         });
       }
@@ -131,6 +135,19 @@ class AuthController {
         userType,
         language
       };
+
+      // Check if email was verified via OTP
+      const otpRecord = await OTP.findOne({ 
+        email: email.toLowerCase().trim(),
+        isUsed: true,
+        expiresAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Within last 24 hours
+      });
+      
+      if (otpRecord) {
+        userData.isEmailVerified = true;
+        userData.emailVerifiedAt = new Date();
+        console.log('✅ Email pre-verified via OTP, marking as verified');
+      }
 
       // Add default address if provided
       if (req.body.address) {

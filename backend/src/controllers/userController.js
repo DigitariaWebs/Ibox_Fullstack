@@ -3,6 +3,7 @@ import authService from '../services/authService.js';
 import { validationResult } from 'express-validator';
 import twilioService from '../services/twilioService.js';
 import notificationService from '../services/notificationService.js';
+import socketService from '../services/socketService.js';
 
 class UserController {
   // Get user profile (extended version of auth/me)
@@ -201,6 +202,27 @@ class UserController {
       user.phoneVerifiedAt = new Date();
       user.phoneVerificationCode = undefined;
       user.phoneVerificationExpires = undefined;
+      
+      // Initialize transporterDetails and submissionStatus if not exists (for transporters)
+      if (user.userType === 'transporter') {
+        if (!user.transporterDetails) {
+          user.transporterDetails = {};
+        }
+        if (!user.transporterDetails.submissionStatus) {
+          user.transporterDetails.submissionStatus = {};
+        }
+        
+        // Automatically mark phone verification as approved in submission status
+        user.transporterDetails.submissionStatus.phoneVerified = {
+          submitted: true,
+          submittedAt: user.phoneVerifiedAt,
+          status: 'approved',
+          reviewedAt: user.phoneVerifiedAt,
+          reviewedBy: 'system',
+          verifiedAt: user.phoneVerifiedAt
+        };
+      }
+      
       await user.save();
 
       await authService.logSecurityEvent(req.userId, 'customer_phone_verified', {
@@ -219,6 +241,16 @@ class UserController {
           'verification'
         );
       } catch {}
+
+      // Send real-time notification via WebSocket
+      if (socketService) {
+        socketService.notifyVerificationStatusUpdate(req.userId, 'verification_step', 'approved', {
+          step: 'phoneVerified',
+          approvedAt: user.phoneVerifiedAt,
+          approvedBy: 'system',
+          overallStatus: 'pending'
+        });
+      }
 
       return res.json({
         success: true,

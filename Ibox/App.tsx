@@ -6,12 +6,16 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider, useSelector, useDispatch } from 'react-redux';
 import { MotiView } from 'moti';
 import * as Font from 'expo-font';
+import * as WebBrowser from 'expo-web-browser';
 import { fontAssets, Fonts } from './src/config/fonts';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Button, Text, SearchInput, Card, Input, Icon } from './src/ui';
 import { PersistGate } from 'redux-persist/integration/react';
 import { store, persistor } from './src/store/store';
+
+// Complete auth session for Supabase
+WebBrowser.maybeCompleteAuthSession();
 import LanguageSelectionScreen from './src/LanguageSelectionScreen';
 import AuthSelectionScreen from './src/AuthSelectionScreen';
 import { RootState } from './src/store/store';
@@ -69,6 +73,7 @@ import MeasuringScreen from './src/screens/MeasuringScreen';
 import OrderSummaryScreen from './src/screens/OrderSummaryScreen';
 import DriverSearchScreen from './src/screens/DriverSearchScreen';
 import DriverFoundScreen from './src/screens/DriverFoundScreen';
+import SupabaseTestScreen from './src/screens/SupabaseTestScreen';
 
 // Driver Quick Action Screens
 import EarningsHistoryScreen from './src/screens/EarningsHistoryScreen';
@@ -520,6 +525,17 @@ const MainNavigator: React.FC = () => {
         {/* Driver Quick Action Screens */}
         <Stack.Screen name="PreferredRoutes" component={PreferredRoutesScreen} />
         <Stack.Screen name="DriverSupport" component={DriverSupportScreen} />
+        
+        {/* Test Screens */}
+        <Stack.Screen 
+          name="SupabaseTest" 
+          component={SupabaseTestScreen}
+          options={{
+            presentation: 'card',
+            animation: 'slide_from_right',
+            headerShown: false,
+          }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

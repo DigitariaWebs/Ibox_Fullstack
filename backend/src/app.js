@@ -25,12 +25,17 @@ import {
 
 // Route imports
 import authRoutes from './routes/auth.js';
+import supabaseAuthRoutes from './routes/supabaseAuth.js';
 import userRoutes from './routes/users.js';
 import orderRoutes from './routes/orders.js';
 import uploadRoutes from './routes/upload.js';
 import notificationRoutes from './routes/notifications.js';
 import driverRoutes from './routes/driver.js';
 import serviceRoutes from './routes/services.js';
+import adminRoutes from './routes/admin.js';
+
+// MongoDB import for database connection
+import mongoose from "mongoose";
 
 // Get current directory for ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -49,7 +54,10 @@ app.set('trust proxy', 1);
 const requiredEnvVars = [
   'NODE_ENV',
   'JWT_SECRET',
-  'MONGODB_URI'
+  'MONGODB_URI',
+  'SUPABASE_JWKS_URL',
+  'APP_JWT_SECRET',
+  'APP_REFRESH_SECRET'
 ];
 
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -103,9 +111,9 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:"],
+      connectSrc: ["'self'", "wss:", "ws:", "http://127.0.0.1:5000", "http://localhost:5000"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
@@ -217,14 +225,24 @@ app.get(`${API_BASE_PATH}/status`, (req, res) => {
   });
 });
 
+// Note: Better Auth has been removed. Using Supabase Auth instead.
+
 // API Routes
 app.use(`${API_BASE_PATH}/auth`, authRoutes);
+app.use(`${API_BASE_PATH}/supabase`, supabaseAuthRoutes);
 app.use(`${API_BASE_PATH}/users`, userRoutes);
 app.use(`${API_BASE_PATH}/orders`, orderRoutes);
 app.use(`${API_BASE_PATH}/upload`, uploadRoutes);
 app.use(`${API_BASE_PATH}/notifications`, notificationRoutes);
 app.use(`${API_BASE_PATH}/driver`, driverRoutes);
 app.use(`${API_BASE_PATH}/services`, serviceRoutes);
+app.use(`${API_BASE_PATH}/admin`, adminRoutes);
+
+// Serve new admin dashboard
+app.use('/admin-new', express.static(path.join(__dirname, 'admin-dashboard/dist')));
+app.get('/admin-new', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-dashboard/dist/index.html'));
+});
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -242,6 +260,11 @@ app.get('/', (req, res) => {
       status: `${req.protocol}://${req.get('host')}${API_BASE_PATH}/status`
     }
   });
+});
+
+// Admin Dashboard endpoint
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../admin-dashboard.html'));
 });
 
 // API Documentation endpoint (development only)
@@ -361,8 +384,8 @@ const startServer = async () => {
     const server = app.listen(PORT, '0.0.0.0', async () => {
       console.log(`🚀 Server running on port ${PORT} (all interfaces)`);
       console.log(`📡 Environment: ${process.env.NODE_ENV}`);
-      console.log(`🔗 API Base URL: http://192.168.1.12:${PORT}${API_BASE_PATH}`);
-      console.log(`💚 Health Check: http://192.168.1.12:${PORT}/health`);
+      console.log(`🔗 API Base URL: http://192.168.1.22:${PORT}${API_BASE_PATH}`);
+      console.log(`💚 Health Check: http://192.168.1.22:${PORT}/health`);
       
       if (process.env.NODE_ENV === 'development') {
         console.log(`📚 API Docs: http://localhost:${PORT}/api/docs`);

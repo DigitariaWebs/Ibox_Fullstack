@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import OTP from '../models/OTP.js';
+import User from '../models/User.js';
 import emailService from './emailService.js';
 
 class OTPService {
@@ -213,6 +214,20 @@ class OTPService {
 
       // Mark OTP as used (successful verification)
       await otpRecord.markAsUsed();
+
+      // Update user's email verification status
+      const user = await User.findOne({ email: normalizedEmail });
+      if (user && !user.isEmailVerified) {
+        user.isEmailVerified = true;
+        user.emailVerifiedAt = new Date();
+        await user.save();
+        
+        console.log('✅ User email verification updated:', {
+          userId: user._id,
+          email: normalizedEmail,
+          verifiedAt: user.emailVerifiedAt
+        });
+      }
 
       console.log('✅ OTP verified successfully:', {
         otpId: otpRecord._id,

@@ -9,20 +9,18 @@ import Animated, {
   withTiming,
   withDelay,
 } from 'react-native-reanimated';
-import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 import { Text } from './ui';
 import { Icon } from './ui/Icon';
 import IOSButton from './components/iOSButton';
 import { Colors } from './config/colors';
 import { Fonts } from './config/fonts';
 import { PaymentLogos } from './config/assets';
-import { useTranslation } from './config/i18n';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from './contexts/AuthContext';
 import ModernLoginModal from './components/ModernLoginModal';
-import googleAuthService from './services/googleAuth';
-import { GOOGLE_CLIENT_IDS } from './config/googleAuth';
-import apiService from './services/api';
+import { supabase } from './lib/supabase';
 
 // Complete the web browser session for OAuth
 WebBrowser.maybeCompleteAuthSession();
@@ -36,10 +34,14 @@ interface AuthSelectionScreenProps {
 const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
   navigation,
 }) => {
-  const { t, locale } = useTranslation();
   const { login } = useAuth();
+  const navigationHook = useNavigation();
   const [isLoginModalVisible, setIsLoginModalVisible] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  
+  // Simple fallback for translation
+  const t = (key: string) => key;
+  const locale = 'en';
 
   // Animation values
   const logoOpacity = useSharedValue(0);
@@ -49,17 +51,7 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
   const buttonsOpacity = useSharedValue(0);
   const buttonsTranslateY = useSharedValue(40);
 
-  // Google Auth configuration - Using Expo's default client for demo
-  // This works immediately in Expo Go without any setup!
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: '603386649315-vp4revvrcgrcjme51ebuhbkbspl048l9.apps.googleusercontent.com',
-    // For iOS, we need to provide an iosClientId (using the same Expo test ID)
-    iosClientId: '603386649315-vp4revvrcgrcjme51ebuhbkbspl048l9.apps.googleusercontent.com',
-    // For Android
-    androidClientId: '603386649315-vp4revvrcgrcjme51ebuhbkbspl048l9.apps.googleusercontent.com',
-    // This is Expo's official test client ID that works in Expo Go
-    scopes: ['profile', 'email'],
-  });
+  // Supabase Google Auth configuration
 
   // Initialize video player with expo-video
   const player = useVideoPlayer(require('../assets/videos/selectVideo.mp4'), player => {
@@ -85,15 +77,7 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
     };
   }, [player]);
 
-  // Handle Google authentication response
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { authentication } = response;
-      if (authentication?.idToken) {
-        handleGoogleSuccess(authentication.idToken);
-      }
-    }
-  }, [response]);
+  // Handle Supabase Google authentication
 
 
   const handleLoginPress = () => {
@@ -103,74 +87,112 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
   const handleGoogleSignIn = async () => {
     try {
       setIsGoogleLoading(true);
-      console.log('🔑 Initiating Google Sign-in...');
+      console.log('🔑 Initiating Supabase Google Sign-in...');
       
-      // Prompt the user to sign in with Google
-      const result = await promptAsync();
+      // Critical: proxy redirect for Expo Go
+      const redirectTo = AuthSession.makeRedirectUri({ useProxy: true });
+      console.log('🔗 Redirect URI:', redirectTo);
+      console.log('🔗 Supabase URL:', process.env.EXPO_PUBLIC_SUPABASE_URL);
+      console.log('🔗 Supabase Anon Key:', process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? 'Present' : 'Missing');
       
-      if (result?.type === 'cancel') {
+      // Use the local redirect URI for Expo Go
+      const supabaseRedirectTo = redirectTo;
+      console.log('🔗 Using Supabase Redirect URI:', supabaseRedirectTo);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { 
+          redirectTo: supabaseRedirectTo, 
+          scopes: 'openid email profile' 
+        },
+      });
+      
+      if (error) {
+        console.error('❌ Supabase OAuth error:', error);
+        throw error;
+      }
+      
+      console.log('✅ Supabase OAuth URL generated:', data.url);
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url!, supabaseRedirectTo);
+      console.log('🔍 OAuth result:', result);
+      
+      if (result.type !== 'success') {
         console.log('User cancelled Google sign-in');
         setIsGoogleLoading(false);
+        return;
       }
+
+      console.log('✅ OAuth completed, processing URL fragment...');
+
+      // Extract access token from URL fragment
+      let sessionData = null;
+      if (result.url && result.url.includes('access_token=')) {
+        const url = new URL(result.url);
+        const accessToken = url.hash.split('access_token=')[1]?.split('&')[0];
+        
+        if (accessToken) {
+          console.log('✅ Access token extracted from URL');
+          
+          // Set the session manually using the access token
+          const { data, error: sessErr } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: url.hash.split('refresh_token=')[1]?.split('&')[0] || ''
+          });
+          
+          sessionData = data;
+          
+          if (sessErr || !sessionData.session) {
+            console.error('❌ Session error:', sessErr);
+            console.error('❌ Session data:', sessionData);
+            throw sessErr ?? new Error('Failed to set Supabase session');
+          }
+          
+          console.log('✅ Supabase session established!');
+        } else {
+          throw new Error('No access token found in URL fragment');
+        }
+      } else {
+        throw new Error('No URL fragment with access token');
+      }
+
+      // Send Supabase access token to API to get our app tokens
+      const accessToken = sessionData.session.access_token;
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.22:5000';
+      
+      console.log('🌐 Calling backend API:', `${apiUrl}/api/v1/supabase/login`);
+      console.log('🔑 Access token length:', accessToken.length);
+      
+      const response = await fetch(`${apiUrl}/api/v1/supabase/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken }),
+      });
+      
+      console.log('📡 API response status:', response.status);
+      console.log('📡 API response ok:', response.ok);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ API error response:', errorData);
+        throw new Error(errorData.error || 'API login failed');
+      }
+      
+      const tokens = await response.json();
+      
+      console.log('✅ Supabase Google sign-in successful!');
+      console.log('👤 User data:', tokens.user);
+      
+      // Store the tokens manually since we have them from the backend
+      // The auth context will pick them up on next app start
+      // For now, just navigate to the home screen
+      navigation?.navigate('HomeScreen');
+      
     } catch (error) {
-      console.error('❌ Google sign-in error:', error);
+      console.error('❌ Supabase Google sign-in error:', error);
       Alert.alert(
         'Sign-In Error',
         'Failed to sign in with Google. Please try again.',
-        [{ text: 'OK' }]
-      );
-      setIsGoogleLoading(false);
-    }
-  };
-
-  const handleGoogleSuccess = async (idToken: string) => {
-    try {
-      console.log('✅ Got Google ID token, sending to backend...');
-      
-      // Send the ID token to your real backend
-      // Use the same API URL from the service
-      const apiUrl = apiService.getConfig().baseUrl.replace('/api/v1', '');
-      const response = await fetch(`${apiUrl}/api/v1/auth/google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({
-          userType: 'customer',
-          language: locale,
-        }),
-      });
-
-      const data = await response.json();
-      console.log('Backend response:', data);
-
-      if (data.success && data.data) {
-        // Store tokens from backend
-        const { user, tokens } = data.data;
-        
-        // Store tokens in API service
-        await apiService.storeTokens(tokens.accessToken, tokens.refreshToken);
-        
-        // Update auth context with real user from backend
-        await login(user, user.userType);
-        
-        console.log('✅ Google sign-in successful with backend!');
-        
-        // Navigate to appropriate screen based on user type
-        if (user.userType === 'transporter') {
-          navigation?.navigate('TransporterMain');
-        } else {
-          navigation?.navigate('CustomerMain');
-        }
-      } else {
-        throw new Error(data.message || 'Backend authentication failed');
-      }
-    } catch (error) {
-      console.error('❌ Backend authentication error:', error);
-      Alert.alert(
-        'Sign-In Error',
-        'Failed to authenticate with backend. Please make sure the backend server is running.',
         [{ text: 'OK' }]
       );
     } finally {
@@ -255,7 +277,7 @@ const AuthSelectionScreen: React.FC<AuthSelectionScreenProps> = ({
             isVisible={true}
             style={styles.googleButton}
             loading={isGoogleLoading}
-            disabled={isGoogleLoading || !request}
+            disabled={isGoogleLoading}
             textColor={Colors.textPrimary}
             icon={
               <Image

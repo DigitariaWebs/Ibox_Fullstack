@@ -599,7 +599,7 @@ const HomeScreen: React.FC = () => {
     setSelectedService(serviceId);
   };
 
-  const handleServiceContinue = () => {
+  const handleServiceContinue = async () => {
     console.log('🚀 Service confirmed:', selectedService);
     console.log('🔍 DEBUG: Navigating with startLocationCoords:', startLocationCoords);
     console.log('🔍 DEBUG: Navigating with destination:', selectedDestination);
@@ -619,10 +619,28 @@ const HomeScreen: React.FC = () => {
         ? startLocationCoords
         : fallbackPickupCoords;
     
-    // Ensure startLocation is always set
-    const finalStartLocation = (startLocation && startLocation.trim() && startLocation.trim() !== '') 
-      ? startLocation.trim() 
-      : 'Current Location';
+    // Ensure startLocation is always set with real address
+    let finalStartLocation = 'Current Location';
+    
+    if (startLocation && startLocation.trim() && startLocation.trim() !== '') {
+      finalStartLocation = startLocation.trim();
+    } else if (pickupCoordsToSend && pickupCoordsToSend.latitude && pickupCoordsToSend.longitude) {
+      // Try to get the real address for current location using reverse geocoding
+      try {
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${pickupCoordsToSend.latitude},${pickupCoordsToSend.longitude}&key=${GOOGLE_API_KEY}`
+        );
+        const data = await response.json();
+        
+        if (data.status === 'OK' && data.results && data.results.length > 0) {
+          finalStartLocation = data.results[0].formatted_address;
+          console.log('✅ Real pickup address fetched:', finalStartLocation);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching pickup address:', error);
+        finalStartLocation = 'Current Location';
+      }
+    }
     
     const baseParams = {
       service: selectedService,
@@ -1018,11 +1036,14 @@ const HomeScreen: React.FC = () => {
             longitude: location.longitude || currentLocation.longitude,
           };
           
-          // If we have a place_id, fetch real coordinates from Google Place Details
+          let realAddress = location.address || location.description || 'Selected Location';
+          let realName = location.name || location.description || 'Selected Location';
+          
+          // If we have a place_id, fetch real coordinates and address from Google Place Details
           if (location.place_id) {
             try {
               const response = await fetch(
-                `https://maps.googleapis.com/maps/api/place/details/json?place_id=${location.place_id}&fields=geometry,name,formatted_address&key=${GOOGLE_API_KEY}`
+                `https://maps.googleapis.com/maps/api/place/details/json?place_id=${location.place_id}&fields=geometry,name,formatted_address,address_components&key=${GOOGLE_API_KEY}`
               );
               const data = await response.json();
               
@@ -1031,6 +1052,12 @@ const HomeScreen: React.FC = () => {
                   latitude: data.result.geometry.location.lat,
                   longitude: data.result.geometry.location.lng,
                 };
+                
+                // Use the real formatted address from Google
+                realAddress = data.result.formatted_address;
+                realName = data.result.name || data.result.formatted_address;
+                
+                console.log('✅ Real address fetched:', realAddress);
                 console.log('✅ Real coordinates fetched:', destinationCoords);
               }
             } catch (error) {
@@ -1038,12 +1065,14 @@ const HomeScreen: React.FC = () => {
             }
           }
           
-          // Store the selected destination
+          // Store the selected destination with REAL address information
           const destinationMarker = {
             id: location.place_id || 'selected-location',
             coordinate: destinationCoords,
-            title: location.name || location.description || 'Selected Location',
-            description: location.address || location.description || '',
+            title: realName,
+            description: realAddress,
+            address: realAddress, // Store the real address
+            name: realName, // Store the real name
             type: 'destination' as const,
           };
           

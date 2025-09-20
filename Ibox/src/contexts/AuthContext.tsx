@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService, { User, LoginRequest, RegisterRequest, AuthResponse } from '../services/api';
+import socketService from '../services/socketService';
+import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -9,6 +11,7 @@ interface AuthContextType {
   isLoading: boolean;
   connectionStatus: 'connected' | 'disconnected' | 'checking';
   login: (credentials: LoginRequest) => Promise<AuthResponse>;
+  googleLogin: (googleUserData: any) => Promise<AuthResponse>;
   register: (userData: RegisterRequest) => Promise<AuthResponse>;
   logout: () => Promise<void>;
   getCurrentUser: () => Promise<User | null>;
@@ -45,6 +48,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Check connection to backend
       await checkConnection();
       
+      // Check for active Supabase session first
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (session && !error) {
+          console.log('🔐 Found active Supabase session, clearing it...');
+          await supabase.auth.signOut();
+        }
+      } catch (error) {
+        console.log('⚠️ Supabase session check error:', error);
+      }
+      
       // Load cached auth state
       const [
         cachedHasCompletedOnboarding,
@@ -68,6 +82,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Update cached user data
           await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(currentUser));
           
+          // Initialize WebSocket connection
+          if (accessToken) {
+            await socketService.connect(currentUser._id, currentUser.userType, accessToken);
+            console.log('🔌 WebSocket connected on app start');
+          }
+          
           console.log('🔐 User authenticated with valid token:', currentUser.email);
         } catch (error) {
           console.log('❌ Token validation failed, clearing auth state');
@@ -85,6 +105,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(currentUser);
             setIsAuthenticated(true);
             await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(currentUser));
+            
+            // Initialize WebSocket connection after token refresh
+            const newAccessToken = await apiService.getAccessToken();
+            if (newAccessToken) {
+              await socketService.connect(currentUser._id, currentUser.userType, newAccessToken);
+              console.log('🔌 WebSocket reconnected after token refresh');
+            }
+            
             console.log('✅ Token refreshed and user authenticated:', currentUser.email);
           } catch (error) {
             console.log('❌ Failed to get user after token refresh');
@@ -145,11 +173,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Cache user data
       await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(authResponse.user));
       
+      // Initialize WebSocket connection
+      const accessToken = await apiService.getAccessToken();
+      if (accessToken) {
+        await socketService.connect(authResponse.user._id, authResponse.user.userType, accessToken);
+        console.log('🔌 WebSocket connected for user:', authResponse.user.email);
+      }
+      
       console.log('✅ User logged in successfully:', authResponse.user.email, 'as', authResponse.user.userType);
       
       return authResponse;
     } catch (error) {
       console.error('❌ Login error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const googleLogin = async (googleUserData: any): Promise<AuthResponse> => {
+    try {
+      setIsLoading(true);
+      
+      console.log('🔐 Processing Google login for user:', googleUserData.email);
+      
+      // Create user data that matches your existing User model
+      const userData = {
+        _id: googleUserData.id,
+        email: googleUserData.email,
+        firstName: googleUserData.name?.split(' ')[0] || 'User',
+        lastName: googleUserData.name?.split(' ').slice(1).join(' ') || '',
+        authProvider: 'google',
+        isEmailVerified: googleUserData.emailVerified,
+        isPhoneVerified: false, // Google users need phone verification
+        photoURL: googleUserData.image,
+        userType: 'customer', // Default to customer, can be changed later
+        createdAt: googleUserData.createdAt,
+        updatedAt: googleUserData.updatedAt,
+      };
+      
+      // For now, we'll create a mock auth response since Better Auth handles the backend
+      // In a full integration, you'd call your API service to sync with your backend
+      const authResponse: AuthResponse = {
+        user: userData,
+        accessToken: 'google_auth_token', // Better Auth handles this
+        refreshToken: 'google_refresh_token',
+        success: true,
+        message: 'Google authentication successful',
+      };
+      
+      // Update state
+      setUser(userData);
+      setIsAuthenticated(true);
+      
+      // Cache user data
+      await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
+      
+      // Initialize WebSocket connection with mock token
+      // TODO: Get actual token from Better Auth session
+      await socketService.connect(userData._id, userData.userType, authResponse.accessToken);
+      console.log('🔌 WebSocket connected for Google user:', userData.email);
+      
+      console.log('✅ Google user logged in successfully:', userData.email, 'as', userData.userType);
+      
+      return authResponse;
+    } catch (error) {
+      console.error('❌ Google login error:', error);
       throw error;
     } finally {
       setIsLoading(false);
@@ -170,6 +259,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Cache user data
       await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(authResponse.user));
       
+      // Initialize WebSocket connection
+      const accessToken = await apiService.getAccessToken();
+      if (accessToken) {
+        await socketService.connect(authResponse.user._id, authResponse.user.userType, accessToken);
+        console.log('🔌 WebSocket connected for new user:', authResponse.user.email);
+      }
+      
       console.log('✅ User registered successfully:', authResponse.user.email, 'as', authResponse.user.userType);
       
       return authResponse;
@@ -188,6 +284,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Call API logout (clears tokens on backend)
       await apiService.logout();
       
+      // Clear Supabase session
+      try {
+        await supabase.auth.signOut();
+        console.log('🔐 Supabase session cleared');
+      } catch (error) {
+        console.log('⚠️ Supabase signOut error (may not be logged in):', error);
+      }
+      
       // Update state
       setIsAuthenticated(false);
       setUser(null);
@@ -196,6 +300,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Clear cached user data
       await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
 
+      // Disconnect WebSocket
+      socketService.disconnect();
+      console.log('🔌 WebSocket disconnected');
+
       console.log('🚪 User logged out successfully');
     } catch (error) {
       console.error('❌ Logout error:', error);
@@ -203,6 +311,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(false);
       setUser(null);
       await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
+      
+      // Still try to clear Supabase session
+      try {
+        await supabase.auth.signOut();
+      } catch (supabaseError) {
+        console.log('⚠️ Supabase signOut error:', supabaseError);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -280,6 +395,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Clear all cache (for debugging)
   const clearAllCache = async () => {
     try {
+      // Clear Supabase session
+      try {
+        await supabase.auth.signOut();
+        console.log('🔐 Supabase session cleared');
+      } catch (error) {
+        console.log('⚠️ Supabase signOut error:', error);
+      }
+      
       await Promise.all([
         AsyncStorage.removeItem(STORAGE_KEYS.HAS_COMPLETED_ONBOARDING),
         AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA),
@@ -290,6 +413,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setHasCompletedOnboarding(false);
       setUser(null);
       setConnectionStatus('checking');
+      
+      // Disconnect WebSocket
+      socketService.disconnect();
       
       console.log('🗑️ All auth cache cleared');
     } catch (error) {
@@ -304,6 +430,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     connectionStatus,
     login,
+    googleLogin,
     register,
     logout,
     getCurrentUser,

@@ -3,6 +3,9 @@
     "name": "iBox",
     "slug": "ibox",
     "scheme": "ibox",
+    "linking": {
+      "schemes": ["ibox"]
+    },
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
@@ -14,6 +17,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.yourcompany.ibox",
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses location to provide better delivery services",
@@ -35,6 +39,7 @@
       }
     },
     "android": {
+      "package": "com.yourcompany.ibox",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo-icon.png",
         "backgroundColor": "#ffffff"
